@@ -1,7 +1,11 @@
+import 'dotenv/config'
+import { runMigrations } from './migrations'
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import cookie from '@fastify/cookie'
 import helmet from '@fastify/helmet'
+import { queryOne } from './db'
+import scanRoutes from './routes/scan'
 
 const isProd = process.env.NODE_ENV === 'production'
 const PORT = Number(process.env.PORT) || 3000
@@ -18,21 +22,7 @@ async function buildServer() {
 
   // CORS – dev: allow Vite, prod: we'll set env
   await fastify.register(cors, {
-    origin: (origin, cb) => {
-      // Allow server-to-server or curl (no origin)
-      if (!origin) return cb(null, true)
-
-      const allowedOrigins = [
-        'http://localhost:5173', // Vite dev
-        process.env.FRONTEND_ORIGIN || '',
-      ].filter(Boolean)
-
-      if (allowedOrigins.includes(origin)) {
-        cb(null, true)
-      } else {
-        cb(new Error('Not allowed by CORS'), false)
-      }
-    },
+    origin: ['http://localhost:5173'],
     credentials: true,
   })
 
@@ -47,22 +37,21 @@ async function buildServer() {
     return { status: 'ok', uptime: process.uptime() }
   })
 
+  fastify.get('/api/db-health', async () => {
+    // Simple sanity check that DB is reachable
+    const row = await queryOne<{ now: string }>('SELECT NOW() as now')
+    return {
+      status: 'ok',
+      now: row?.now ?? null,
+    }
+  })
+
   fastify.get('/', async () => {
     return { status: 'ok', service: 'prepperstore-backend' }
   })
 
-  // Simple echo scan endpoint (no auth yet)
-  fastify.post<{
-    Body: { barcode: string; mode: 'IN' | 'OUT' | 'STATUS' }
-  }>('/api/scan', async (request, reply) => {
-    const { barcode, mode } = request.body
-
-    // TODO: validate and store in DB
-    fastify.log.info({ barcode, mode }, 'Received scan')
-
-    return { ok: true, barcode, mode }
-  })
-
+  await fastify.register(scanRoutes)
+  
   return fastify
 }
 
@@ -70,6 +59,8 @@ async function start() {
   const fastify = await buildServer()
 
   try {
+    await runMigrations()
+
     await fastify.listen({ port: PORT, host: '0.0.0.0' })
     fastify.log.info(`Server listening on port ${PORT}`)
   } catch (err) {
