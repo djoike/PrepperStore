@@ -36,7 +36,6 @@ export interface KnownIdentifierResponse extends BaseScanResponse {
   warning?: 'no_stock_available'
 }
 
-
 export type ScanResponse = UnknownIdentifierResponse | KnownIdentifierResponse
 
 const API_BASE =
