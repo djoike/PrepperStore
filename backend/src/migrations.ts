@@ -32,10 +32,10 @@ export async function runMigrations() {
     .filter((f) => f.endsWith('.sql'))
     .sort()
 
-const { rows } = await client.query<{ name: string }>(
-  'SELECT name FROM schema_migrations',
-)
-const applied = new Set<string>(rows.map((r) => r.name))
+  const { rows } = await client.query<{ name: string }>(
+    'SELECT name FROM schema_migrations',
+  )
+  const applied = new Set<string>(rows.map((r) => r.name))
 
   for (const file of files) {
     if (applied.has(file)) continue
