@@ -15,6 +15,15 @@ export interface KnownIdentifierLocation {
   amount: number
 }
 
+export interface ChangeInfo {
+  action: 'OUT' // later we can expand to 'IN'
+  quantity: number
+  locationId: number
+  locationName: string
+  previousAmount: number
+  newAmount: number
+}
+
 export interface KnownIdentifierResponse extends BaseScanResponse {
   status: 'known'
   item: {
@@ -23,7 +32,10 @@ export interface KnownIdentifierResponse extends BaseScanResponse {
     threshold: number | null
   }
   locations: KnownIdentifierLocation[]
+  change?: ChangeInfo | null
+  warning?: 'no_stock_available'
 }
+
 
 export type ScanResponse = UnknownIdentifierResponse | KnownIdentifierResponse
 

@@ -39,37 +39,20 @@ async function onSubmit() {
       <div class="scan">
         <form @submit.prevent="onSubmit" class="scan-form">
           <div class="scan-form__mode">
-            <button
-              type="button"
-              :class="['mode-btn', { 'mode-btn--active': mode === 'IN' }]"
-              @click="mode = 'IN'"
-            >
+            <button type="button" :class="['mode-btn', { 'mode-btn--active': mode === 'IN' }]" @click="mode = 'IN'">
               In
             </button>
-            <button
-              type="button"
-              :class="['mode-btn', { 'mode-btn--active': mode === 'OUT' }]"
-              @click="mode = 'OUT'"
-            >
+            <button type="button" :class="['mode-btn', { 'mode-btn--active': mode === 'OUT' }]" @click="mode = 'OUT'">
               Out
             </button>
-            <button
-              type="button"
-              :class="['mode-btn', { 'mode-btn--active': mode === 'STATUS' }]"
-              @click="mode = 'STATUS'"
-            >
+            <button type="button" :class="['mode-btn', { 'mode-btn--active': mode === 'STATUS' }]"
+              @click="mode = 'STATUS'">
               Status
             </button>
           </div>
 
-          <input
-            v-model="scanValue"
-            class="scan-form__input"
-            type="text"
-            autofocus
-            autocomplete="off"
-            placeholder="Scan or type barcode…"
-          />
+          <input v-model="scanValue" class="scan-form__input" type="text" autofocus autocomplete="off"
+            placeholder="Scan or type barcode…" />
 
           <button type="submit" class="scan-form__submit" :disabled="isSubmitting">
             {{ isSubmitting ? 'Working…' : 'Submit' }}
@@ -103,6 +86,21 @@ async function onSubmit() {
                 </span>
               </p>
 
+              <!-- Change summary (OUT mode) -->
+              <div v-if="lastResponse.change" class="change">
+                <p>
+                  <strong>Change:</strong>
+                  Took {{ lastResponse.change.quantity }} from
+                  "{{ lastResponse.change.locationName }}"
+                  ({{ lastResponse.change.previousAmount }} → {{ lastResponse.change.newAmount }}).
+                </p>
+              </div>
+
+              <p v-else-if="lastResponse.warning === 'no_stock_available'" class="status status--error">
+                No stock available to take out.
+              </p>
+
+              <!-- Stock per location -->
               <div v-if="lastResponse.locations.length > 0">
                 <h3>Stock per location</h3>
                 <ul class="locations">
@@ -298,6 +296,15 @@ async function onSubmit() {
   .loc-amount {
     font-variant-numeric: tabular-nums;
   }
-}
 
+  .change {
+    margin: 0.5rem 0 0.75rem;
+
+    p {
+      margin: 0;
+      font-size: 0.9rem;
+    }
+  }
+
+}
 </style>
