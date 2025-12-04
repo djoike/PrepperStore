@@ -8,14 +8,86 @@ const lastResponse = ref<ScanResponse | null>(null)
 const isSubmitting = ref(false)
 const error = ref<string | null>(null)
 
+// New: location selection state
+const selectedLocationId = ref<number | null>(null)
+const selectedLocationName = ref<string | null>(null)
+
+// Optional: hardcoded location definitions for now
+const LOCATION_DEFS: Record<string, { id: number; name: string }> = {
+  '1': { id: 1, name: 'Viktualierum' },
+  '2': { id: 2, name: 'Kontor' },
+  '3': { id: 3, name: 'Kummefryser' },
+}
+
+function setMode(newMode: ScanMode) {
+  mode.value = newMode
+}
+
+function setLocation(id: number, name: string) {
+  selectedLocationId.value = id
+  selectedLocationName.value = name
+}
+
+// Returns true if this was a command and has been handled
+function handleCommand(raw: string): boolean {
+  if (!raw.startsWith('CMD:')) return false
+
+  const parts = raw.split(':')
+  if (parts.length < 3) return false
+
+  const [, type, value] = parts
+
+  if (type === 'MODE') {
+    if (value === 'IN' || value === 'OUT' || value === 'STATUS') {
+      setMode(value as ScanMode)
+      return true
+    }
+    return false
+  }
+
+  if (type === 'LOC') {
+    const locDef = LOCATION_DEFS[value]
+    if (locDef) {
+      setLocation(locDef.id, locDef.name)
+      return true
+    }
+    return false
+  }
+
+  if (type === 'ASSET') {
+    if (value === 'NEW') {
+      // Later: enter asset-tag creation mode
+      // For now we just swallow it so it doesn't get sent to backend
+      // e.g. we could set a flag here
+      // assetTagMode.value = true
+      return true
+    }
+    return false
+  }
+
+  return false
+}
+
 async function onSubmit() {
   if (!scanValue.value || isSubmitting.value) return
 
+  const raw = scanValue.value.trim()
+  if (!raw) return
+
+  // 1) Try to handle as a command
+  if (handleCommand(raw)) {
+    scanValue.value = ''
+    // Optionally keep lastResponse visible, or clear it:
+    // lastResponse.value = null
+    return
+  }
+
+  // 2) Otherwise treat as a product/asset barcode
   isSubmitting.value = true
   error.value = null
 
   try {
-    const result = await sendScan(scanValue.value, mode.value)
+    const result = await sendScan(raw, mode.value)
     lastResponse.value = result
     scanValue.value = ''
   } catch (err: any) {
@@ -37,19 +109,41 @@ async function onSubmit() {
 
     <main class="app__main">
       <div class="scan">
+        <p class="current-status">
+          Mode: {{ mode }}
+          <span v-if="selectedLocationName">
+            · Location: {{ selectedLocationName }}
+          </span>
+        </p>
+
         <form @submit.prevent="onSubmit" class="scan-form">
           <div class="scan-form__mode">
-            <button type="button" :class="['mode-btn', { 'mode-btn--active': mode === 'IN' }]" @click="mode = 'IN'">
+            <button type="button" :class="['mode-btn', { 'mode-btn--active': mode === 'IN' }]" @click="setMode('IN')">
               In
             </button>
-            <button type="button" :class="['mode-btn', { 'mode-btn--active': mode === 'OUT' }]" @click="mode = 'OUT'">
+            <button type="button" :class="['mode-btn', { 'mode-btn--active': mode === 'OUT' }]" @click="setMode('OUT')">
               Out
             </button>
             <button type="button" :class="['mode-btn', { 'mode-btn--active': mode === 'STATUS' }]"
-              @click="mode = 'STATUS'">
+              @click="setMode('STATUS')">
               Status
             </button>
           </div>
+          <div class="location-buttons">
+            <button type="button" :class="['loc-btn', { 'loc-btn--active': selectedLocationId === 1 }]"
+              @click="setLocation(1, 'Viktualierum')">
+              Viktualierum
+            </button>
+            <button type="button" :class="['loc-btn', { 'loc-btn--active': selectedLocationId === 2 }]"
+              @click="setLocation(2, 'Kontor')">
+              Kontor
+            </button>
+            <button type="button" :class="['loc-btn', { 'loc-btn--active': selectedLocationId === 3 }]"
+              @click="setLocation(3, 'Kummefryser')">
+              Kummefryser
+            </button>
+          </div>
+
 
           <input v-model="scanValue" class="scan-form__input" type="text" autofocus autocomplete="off"
             placeholder="Scan or type barcode…" />
@@ -296,15 +390,45 @@ async function onSubmit() {
   .loc-amount {
     font-variant-numeric: tabular-nums;
   }
-
-  .change {
-    margin: 0.5rem 0 0.75rem;
-
-    p {
-      margin: 0;
-      font-size: 0.9rem;
-    }
-  }
-
 }
+
+/* these were mistakenly nested inside .locations before */
+
+.change {
+  margin: 0.5rem 0 0.75rem;
+
+  p {
+    margin: 0;
+    font-size: 0.9rem;
+  }
+}
+
+.current-status {
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+  color: #9ca3af;
+}
+
+.location-buttons {
+  margin-top: 0.5rem;
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.loc-btn {
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid #4b5563;
+  background: #020617;
+  color: #e5e7eb;
+  font-size: 0.85rem;
+  cursor: pointer;
+
+  &--active {
+    background: #4b5563;
+    border-color: #e5e7eb;
+  }
+}
+
 </style>
