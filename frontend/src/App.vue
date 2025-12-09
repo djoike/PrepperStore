@@ -17,6 +17,7 @@ const lastResponse = ref<ScanResponse | null>(null)
 const isSubmitting = ref(false)
 const error = ref<string | null>(null)
 const scanInput = ref<HTMLInputElement | null>(null)
+const unknownInError = ref<string | null>(null)
 
 // New: location selection state
 const selectedLocationId = ref<number | null>(null)
@@ -160,11 +161,18 @@ async function ensureItemsLoaded() {
 }
 
 async function resolveUnknownByCreate() {
+  unknownInError.value = null
+
   if (
     !lastResponse.value ||
     lastResponse.value.status !== 'unknown_identifier' ||
     mode.value !== 'IN'
   ) {
+    return
+  }
+
+  if (!selectedLocationId.value) {
+    unknownInError.value = 'Vælg en lokation før du opretter varen.'
     return
   }
 
@@ -199,11 +207,18 @@ async function resolveUnknownByCreate() {
 }
 
 async function resolveUnknownByLink(item: ItemSummary) {
+  unknownInError.value = null
+
   if (
     !lastResponse.value ||
     lastResponse.value.status !== 'unknown_identifier' ||
     mode.value !== 'IN'
   ) {
+    return
+  }
+
+  if (!selectedLocationId.value) {
+    unknownInError.value = 'Vælg en lokation før du linker varen.'
     return
   }
 
@@ -389,6 +404,35 @@ onMounted(focusInput)
           This barcode is not linked to any item for IN mode. Create a new item or link to an existing one, then we
           will add it here automatically.
         </p>
+        <p v-if="unknownInError" class="status status--error">
+          {{ unknownInError }}
+        </p>
+        <div class="modal-location">
+          <p class="muted">Vælg lokation for denne IN-handling:</p>
+          <div class="location-buttons">
+            <button
+              type="button"
+              :class="['loc-btn', { 'loc-btn--active': selectedLocationId === 1 }]"
+              @click="setLocation(1, 'Viktualierum')"
+            >
+              Viktualierum
+            </button>
+            <button
+              type="button"
+              :class="['loc-btn', { 'loc-btn--active': selectedLocationId === 2 }]"
+              @click="setLocation(2, 'Kontor')"
+            >
+              Kontor
+            </button>
+            <button
+              type="button"
+              :class="['loc-btn', { 'loc-btn--active': selectedLocationId === 3 }]"
+              @click="setLocation(3, 'Kummefryser')"
+            >
+              Kummefryser
+            </button>
+          </div>
+        </div>
 
         <div class="unknown-panel">
           <div class="unknown-section">
@@ -762,6 +806,10 @@ onMounted(focusInput)
   p {
     margin: 0 0 0.5rem;
   }
+}
+
+.modal-location {
+  margin: 0.25rem 0 0.75rem;
 }
 
 </style>
