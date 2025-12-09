@@ -35,6 +35,12 @@ const filteredItems = computed(() =>
   ),
 )
 
+const showUnknownInModal = computed(
+  () =>
+    lastResponse.value?.status === 'unknown_identifier' &&
+    mode.value === 'IN',
+)
+
 // Optional: hardcoded location definitions for now
 const LOCATION_DEFS: Record<string, { id: number; name: string }> = {
   '1': { id: 1, name: 'Viktualierum' },
@@ -309,64 +315,8 @@ onMounted(focusInput)
                     This barcode is not linked to any item yet.
                   </p>
                 </div>
-                <div v-else class="unknown-panel">
-                  <p>
-                    This barcode is not linked to any item for IN mode. Create a new item or link to an existing one, then we will add it here automatically.
-                  </p>
-
-                  <div class="unknown-section">
-                    <h3>Create new item</h3>
-                    <input
-                      v-model="newItemName"
-                      type="text"
-                      class="scan-form__input"
-                      placeholder="Item name"
-                    />
-                    <input
-                      v-model.number="newItemThreshold"
-                      type="number"
-                      class="scan-form__input"
-                      placeholder="Threshold (optional)"
-                    />
-                    <button
-                      type="button"
-                      class="scan-form__submit"
-                      @click="resolveUnknownByCreate"
-                    >
-                      Create item and add here
-                    </button>
-                  </div>
-
-                  <div class="unknown-section">
-                    <h3>Link to existing item</h3>
-                    <input
-                      v-model="itemSearch"
-                      type="text"
-                      class="scan-form__input"
-                      placeholder="Search items…"
-                      @focus="ensureItemsLoaded"
-                    />
-                    <ul class="item-list">
-                      <li v-for="item in filteredItems" :key="item.id" class="item-row">
-                        <div>
-                          <strong>{{ item.name }}</strong>
-                          <span v-if="item.threshold !== null" class="muted">
-                            · Threshold: {{ item.threshold }}
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          class="loc-btn"
-                          @click="resolveUnknownByLink(item)"
-                        >
-                          Link &amp; add here
-                        </button>
-                      </li>
-                      <li v-if="filteredItems.length === 0" class="muted">
-                        No matching items.
-                      </li>
-                    </ul>
-                  </div>
+                <div v-else>
+                  <p class="muted">Unknown identifier (see modal).</p>
                 </div>
               </div>
 
@@ -431,6 +381,72 @@ onMounted(focusInput)
         </div>
       </div>
     </main>
+
+    <div v-if="showUnknownInModal" class="modal-backdrop">
+      <div class="modal">
+        <h2>Unknown identifier</h2>
+        <p>
+          This barcode is not linked to any item for IN mode. Create a new item or link to an existing one, then we
+          will add it here automatically.
+        </p>
+
+        <div class="unknown-panel">
+          <div class="unknown-section">
+            <h3>Create new item</h3>
+            <input
+              v-model="newItemName"
+              type="text"
+              class="scan-form__input"
+              placeholder="Item name"
+            />
+            <input
+              v-model.number="newItemThreshold"
+              type="number"
+              class="scan-form__input"
+              placeholder="Threshold (optional)"
+            />
+            <button
+              type="button"
+              class="scan-form__submit"
+              @click="resolveUnknownByCreate"
+            >
+              Create item and add here
+            </button>
+          </div>
+
+          <div class="unknown-section">
+            <h3>Link to existing item</h3>
+            <input
+              v-model="itemSearch"
+              type="text"
+              class="scan-form__input"
+              placeholder="Search items…"
+              @focus="ensureItemsLoaded"
+            />
+            <ul class="item-list">
+              <li v-for="item in filteredItems" :key="item.id" class="item-row">
+                <div>
+                  <strong>{{ item.name }}</strong>
+                  <span v-if="item.threshold !== null" class="muted">
+                    · Threshold: {{ item.threshold }}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  class="loc-btn"
+                  @click="resolveUnknownByLink(item)"
+                >
+                  Link &amp; add here
+                </button>
+              </li>
+              <li v-if="filteredItems.length === 0" class="muted">
+                No matching items.
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -714,6 +730,38 @@ onMounted(focusInput)
   justify-content: space-between;
   align-items: center;
   gap: 0.5rem;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+.modal {
+  width: 100%;
+  max-width: 520px;
+  padding: 1.25rem 1.5rem;
+  border-radius: 0.75rem;
+  background: #020617;
+  border: 1px solid #1f2937;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+
+  h2 {
+    margin: 0 0 0.35rem;
+  }
+
+  h3 {
+    margin: 0;
+  }
+
+  p {
+    margin: 0 0 0.5rem;
+  }
 }
 
 </style>
