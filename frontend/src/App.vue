@@ -87,7 +87,7 @@ async function onSubmit() {
   error.value = null
 
   try {
-    const result = await sendScan(raw, mode.value)
+    const result = await sendScan(raw, mode.value, selectedLocationId.value)
     lastResponse.value = result
     scanValue.value = ''
   } catch (err: any) {
@@ -182,16 +182,27 @@ async function onSubmit() {
 
               <!-- Change summary (OUT mode) -->
               <div v-if="lastResponse.change" class="change">
-                <p>
+                <p v-if="lastResponse.change.action === 'OUT'">
                   <strong>Change:</strong>
                   Took {{ lastResponse.change.quantity }} from
                   "{{ lastResponse.change.locationName }}"
+                  ({{ lastResponse.change.previousAmount }} → {{ lastResponse.change.newAmount }}).
+                </p>
+                <p v-else-if="lastResponse.change.action === 'IN'">
+                  <strong>Change:</strong>
+                  Added 1 to "{{ lastResponse.change.locationName }}"
                   ({{ lastResponse.change.previousAmount }} → {{ lastResponse.change.newAmount }}).
                 </p>
               </div>
 
               <p v-else-if="lastResponse.warning === 'no_stock_available'" class="status status--error">
                 No stock available to take out.
+              </p>
+              <p v-else-if="lastResponse.warning === 'no_stock_in_selected_location'" class="status status--error">
+                No stock available in the selected location.
+              </p>
+              <p v-else-if="lastResponse.warning === 'no_location_selected_for_in'" class="status status--error">
+                Select a location before scanning IN.
               </p>
 
               <!-- Stock per location -->

@@ -6,6 +6,7 @@ type ScanMode = 'IN' | 'OUT' | 'STATUS'
 interface ScanBody {
   barcode: string
   mode: ScanMode
+  preferredLocationId?: number | null
 }
 
 interface ScanRow {
@@ -49,6 +50,7 @@ function buildLocations(rows: ScanRow[]) {
 const scanRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post<{ Body: ScanBody }>('/api/scan', async (request, reply) => {
     const { barcode, mode } = request.body
+    const preferredLocationId = request.body.preferredLocationId ?? null
 
     if (!barcode || !barcode.trim()) {
       reply.code(400)
@@ -71,8 +73,7 @@ const scanRoutes: FastifyPluginAsync = async (fastify) => {
 
     const first = rows[0]
 
-    // For STATUS and IN, we are still read-only for now
-    if (mode !== 'OUT') {
+    if (mode === 'STATUS') {
       const locations = buildLocations(rows)
 
       return {
@@ -88,7 +89,157 @@ const scanRoutes: FastifyPluginAsync = async (fastify) => {
       }
     }
 
+    if (mode === 'IN') {
+      const locations = buildLocations(rows)
+
+      let chosenLocationId: number | null = null
+      let chosenLocationName = 'Unknown location'
+      let previousAmount = 0
+
+      if (preferredLocationId !== null) {
+        const preferredRow = rows.find(
+          (r) => r.location_id === preferredLocationId,
+        )
+
+        if (preferredRow) {
+          chosenLocationId = preferredLocationId
+          chosenLocationName = preferredRow.location_name ?? 'Unknown location'
+          previousAmount = preferredRow.location_amount ?? 0
+        } else {
+          const locationRows = await query<{ id: number; name: string }>(
+            `
+            SELECT id, name
+            FROM location
+            WHERE id = $1
+            `,
+            [preferredLocationId],
+          )
+
+          if (locationRows.length === 0) {
+            return {
+              status: 'known' as const,
+              mode,
+              barcode: first.identifier,
+              item: {
+                id: first.item_id,
+                name: first.item_name,
+                threshold: first.item_threshold,
+              },
+              locations,
+              change: null as null,
+              warning: 'no_location_selected_for_in' as const,
+            }
+          }
+
+          chosenLocationId = preferredLocationId
+          chosenLocationName = locationRows[0].name ?? 'Unknown location'
+          previousAmount = 0
+        }
+      } else {
+        if (locations.length === 1) {
+          chosenLocationId = locations[0].locationId
+          chosenLocationName = locations[0].locationName
+          previousAmount = locations[0].amount ?? 0
+        } else {
+          return {
+            status: 'known' as const,
+            mode,
+            barcode: first.identifier,
+            item: {
+              id: first.item_id,
+              name: first.item_name,
+              threshold: first.item_threshold,
+            },
+            locations,
+            change: null as null,
+            warning: 'no_location_selected_for_in' as const,
+          }
+        }
+      }
+
+      let newAmount = previousAmount
+
+      if (rows.some((r) => r.location_id === chosenLocationId)) {
+        const updateRows = await query<{ amount: number }>(
+          `
+          UPDATE item_stock
+          SET amount = amount + 1
+          WHERE item_id = $1
+            AND location_id = $2
+          RETURNING amount
+          `,
+          [first.item_id, chosenLocationId],
+        )
+
+        newAmount = updateRows[0].amount
+      } else {
+        const insertRows = await query<{ amount: number }>(
+          `
+          INSERT INTO item_stock (item_id, location_id, amount)
+          VALUES ($1, $2, 1)
+          RETURNING amount
+          `,
+          [first.item_id, chosenLocationId],
+        )
+
+        newAmount = insertRows[0].amount
+      }
+
+      const updatedRows = await query<ScanRow>(SCAN_SQL, [trimmed])
+      const updatedLocations = buildLocations(updatedRows)
+
+      return {
+        status: 'known' as const,
+        mode,
+        barcode: first.identifier,
+        item: {
+          id: first.item_id,
+          name: first.item_name,
+          threshold: first.item_threshold,
+        },
+        locations: updatedLocations,
+        change: {
+          action: 'IN' as const,
+          quantity: 1,
+          locationId: chosenLocationId as number,
+          locationName: chosenLocationName,
+          previousAmount,
+          newAmount,
+        },
+      }
+    }
+
     // --- mode === OUT from here ---
+
+    let chosen: ScanRow | null = null
+
+    if (preferredLocationId !== null) {
+      const preferredRow = rows.find(
+        (r) => r.location_id === preferredLocationId,
+      )
+
+      if (preferredRow) {
+        if ((preferredRow.location_amount ?? 0) > 0) {
+          chosen = preferredRow
+        } else {
+          const locations = buildLocations(rows)
+
+          return {
+            status: 'known' as const,
+            mode,
+            barcode: first.identifier,
+            item: {
+              id: first.item_id,
+              name: first.item_name,
+              threshold: first.item_threshold,
+            },
+            locations,
+            change: null as null,
+            warning: 'no_stock_in_selected_location' as const,
+          }
+        }
+      }
+    }
 
     // Find candidate locations with stock > 0
     const candidates = rows.filter(
@@ -114,17 +265,19 @@ const scanRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     // Pick location with highest amount (tie-breaker: lowest location_id)
-    let chosen = candidates[0]
-    for (const c of candidates.slice(1)) {
-      const currentAmount = chosen.location_amount ?? 0
-      const candidateAmount = c.location_amount ?? 0
+    if (!chosen) {
+      chosen = candidates[0]
+      for (const c of candidates.slice(1)) {
+        const currentAmount = chosen.location_amount ?? 0
+        const candidateAmount = c.location_amount ?? 0
 
-      if (
-        candidateAmount > currentAmount ||
-        (candidateAmount === currentAmount &&
-          (c.location_id as number) < (chosen.location_id as number))
-      ) {
-        chosen = c
+        if (
+          candidateAmount > currentAmount ||
+          (candidateAmount === currentAmount &&
+            (c.location_id as number) < (chosen.location_id as number))
+        ) {
+          chosen = c
+        }
       }
     }
 
