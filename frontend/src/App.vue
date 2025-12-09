@@ -128,7 +128,7 @@ async function onSubmit() {
     lastResponse.value = result
     scanValue.value = ''
   } catch (err: any) {
-    error.value = err?.message ?? 'Unknown error'
+    error.value = err?.message ?? 'Ukendt fejl'
     lastResponse.value = null
   } finally {
     isSubmitting.value = false
@@ -200,7 +200,7 @@ async function resolveUnknownByCreate() {
     )
     lastResponse.value = result
   } catch (err: any) {
-    error.value = err?.message ?? 'Unknown error'
+    error.value = err?.message ?? 'Ukendt fejl'
   } finally {
     focusInput()
   }
@@ -235,7 +235,7 @@ async function resolveUnknownByLink(item: ItemSummary) {
     )
     lastResponse.value = result
   } catch (err: any) {
-    error.value = err?.message ?? 'Unknown error'
+    error.value = err?.message ?? 'Ukendt fejl'
   } finally {
     focusInput()
   }
@@ -261,26 +261,26 @@ onMounted(focusInput)
   <div class="app">
     <header class="app__header">
       <h1>PrepperStore</h1>
-      <p class="app__subtitle">Simple prepper storage tracker</p>
+      <p class="app__subtitle">Simpel prepper lagerstyring</p>
     </header>
 
     <main class="app__main">
       <div class="scan">
         <div class="scan__controls">
           <p class="current-status">
-            Mode: {{ mode }}
+            Tilstand: {{ mode }}
             <span v-if="selectedLocationName">
-              · Location: {{ selectedLocationName }}
+              · Lokation: {{ selectedLocationName }}
             </span>
           </p>
 
           <form @submit.prevent="onSubmit" class="scan-form">
             <div class="scan-form__mode">
               <button type="button" :class="['mode-btn', { 'mode-btn--active': mode === 'IN' }]" @click="setMode('IN')">
-                In
+                Ind
               </button>
               <button type="button" :class="['mode-btn', { 'mode-btn--active': mode === 'OUT' }]" @click="setMode('OUT')">
-                Out
+                Ud
               </button>
               <button type="button" :class="['mode-btn', { 'mode-btn--active': mode === 'STATUS' }]"
                 @click="setMode('STATUS')">
@@ -304,10 +304,10 @@ onMounted(focusInput)
 
 
             <input v-model="scanValue" ref="scanInput" class="scan-form__input" type="text" autofocus autocomplete="off"
-              placeholder="Scan or type barcode…" />
+              placeholder="Scan eller indtast stregkode…" />
 
             <button type="submit" class="scan-form__submit" :disabled="isSubmitting">
-              {{ isSubmitting ? 'Working…' : 'Submit' }}
+              {{ isSubmitting ? 'Arbejder…' : 'Send' }}
             </button>
           </form>
         </div>
@@ -320,58 +320,58 @@ onMounted(focusInput)
 
             <template v-else-if="lastResponse">
               <p class="status status--ok">
-                Mode: {{ lastResponse.mode }} · Barcode: {{ lastResponse.barcode }}
+                Tilstand: {{ lastResponse.mode }} · Stregkode: {{ lastResponse.barcode }}
               </p>
 
               <div v-if="lastResponse.status === 'unknown_identifier'">
-                <h2>Unknown identifier</h2>
+                <h2>Ukendt identifikator</h2>
                 <div v-if="mode !== 'IN'">
                   <p>
-                    This barcode is not linked to any item yet.
+                    Denne stregkode er endnu ikke knyttet til et produkt.
                   </p>
                 </div>
                 <div v-else>
-                  <p class="muted">Unknown identifier (see modal).</p>
+                  <p class="muted">Ukendt identifikator (se dialogen).</p>
                 </div>
               </div>
 
               <div v-else-if="lastResponse.status === 'known'">
                 <h2>{{ lastResponse.item.name }}</h2>
                 <p class="muted">
-                  Item ID: {{ lastResponse.item.id }}
+                  Vare-ID: {{ lastResponse.item.id }}
                   <span v-if="lastResponse.item.threshold !== null">
-                    · Threshold: {{ lastResponse.item.threshold }}
+                    · Tærskel: {{ lastResponse.item.threshold }}
                   </span>
                 </p>
 
                 <!-- Change summary (OUT mode) -->
                 <div v-if="lastResponse.change" class="change">
                   <p v-if="lastResponse.change.action === 'OUT'">
-                    <strong>Change:</strong>
-                    Took {{ lastResponse.change.quantity }} from
+                    <strong>Ændring:</strong>
+                    Tog {{ lastResponse.change.quantity }} fra
                     "{{ lastResponse.change.locationName }}"
                     ({{ lastResponse.change.previousAmount }} → {{ lastResponse.change.newAmount }}).
                   </p>
                   <p v-else-if="lastResponse.change.action === 'IN'">
-                    <strong>Change:</strong>
-                    Added 1 to "{{ lastResponse.change.locationName }}"
+                    <strong>Ændring:</strong>
+                    Tilføjede 1 til "{{ lastResponse.change.locationName }}"
                     ({{ lastResponse.change.previousAmount }} → {{ lastResponse.change.newAmount }}).
                   </p>
                 </div>
 
                 <p v-else-if="lastResponse.warning === 'no_stock_available'" class="status status--error">
-                  No stock available to take out.
+                  Ingen lager tilgængeligt at tage ud.
                 </p>
                 <p v-else-if="lastResponse.warning === 'no_stock_in_selected_location'" class="status status--error">
-                  No stock available in the selected location.
+                  Ingen lager tilgængeligt i den valgte lokation.
                 </p>
                 <p v-else-if="lastResponse.warning === 'no_location_selected_for_in'" class="status status--error">
-                  Select a location before scanning IN.
+                  Vælg en lokation før du scanner IND.
                 </p>
 
                 <!-- Stock per location -->
                 <div v-if="lastResponse.locations.length > 0">
-                  <h3>Stock per location</h3>
+                  <h3>Lager pr. lokation</h3>
                   <ul class="locations">
                   <li v-for="loc in lastResponse.locations" :key="loc.locationId" class="loc-row">
                     <span class="loc-name">{{ loc.locationName }}</span>
@@ -384,13 +384,13 @@ onMounted(focusInput)
                   </ul>
                 </div>
                 <p v-else class="muted">
-                  No stock registered yet for this item.
+                  Intet lager registreret endnu for denne vare.
                 </p>
               </div>
             </template>
 
             <p v-else class="muted">
-              Scan a barcode to see results.
+              Scan en stregkode for at se resultater.
             </p>
           </div>
         </div>
@@ -399,10 +399,9 @@ onMounted(focusInput)
 
     <div v-if="showUnknownInModal" class="modal-backdrop">
       <div class="modal">
-        <h2>Unknown identifier</h2>
+        <h2>Ukendt identifikator</h2>
         <p>
-          This barcode is not linked to any item for IN mode. Create a new item or link to an existing one, then we
-          will add it here automatically.
+          Denne stregkode er ikke knyttet til nogen vare i IND-tilstand. Opret en ny vare eller link til en eksisterende, så tilføjer vi den automatisk her.
         </p>
         <p v-if="unknownInError" class="status status--error">
           {{ unknownInError }}
@@ -436,35 +435,35 @@ onMounted(focusInput)
 
         <div class="unknown-panel">
           <div class="unknown-section">
-            <h3>Create new item</h3>
+            <h3>Opret ny vare</h3>
             <input
               v-model="newItemName"
               type="text"
               class="scan-form__input"
-              placeholder="Item name"
+              placeholder="Varenavn"
             />
             <input
               v-model.number="newItemThreshold"
               type="number"
               class="scan-form__input"
-              placeholder="Threshold (optional)"
+              placeholder="Tærskel (valgfrit)"
             />
             <button
               type="button"
               class="scan-form__submit"
               @click="resolveUnknownByCreate"
             >
-              Create item and add here
+              Opret vare og tilføj her
             </button>
           </div>
 
           <div class="unknown-section">
-            <h3>Link to existing item</h3>
+            <h3>Link til eksisterende vare</h3>
             <input
               v-model="itemSearch"
               type="text"
               class="scan-form__input"
-              placeholder="Search items…"
+              placeholder="Søg varer…"
               @focus="ensureItemsLoaded"
             />
             <ul class="item-list">
@@ -472,7 +471,7 @@ onMounted(focusInput)
                 <div>
                   <strong>{{ item.name }}</strong>
                   <span v-if="item.threshold !== null" class="muted">
-                    · Threshold: {{ item.threshold }}
+                    · Tærskel: {{ item.threshold }}
                   </span>
                 </div>
                 <button
@@ -480,11 +479,11 @@ onMounted(focusInput)
                   class="loc-btn"
                   @click="resolveUnknownByLink(item)"
                 >
-                  Link &amp; add here
+                  Link &amp; tilføj her
                 </button>
               </li>
               <li v-if="filteredItems.length === 0" class="muted">
-                No matching items.
+                Ingen matchende varer.
               </li>
             </ul>
           </div>
