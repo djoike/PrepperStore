@@ -38,8 +38,65 @@ export interface KnownIdentifierResponse extends BaseScanResponse {
 
 export type ScanResponse = UnknownIdentifierResponse | KnownIdentifierResponse
 
+export interface ItemSummary {
+  id: number
+  name: string
+  threshold: number | null
+}
+
 const API_BASE =
   import.meta.env.VITE_API_BASE || 'http://localhost:3000'
+
+export async function fetchAllItems(): Promise<ItemSummary[]> {
+  const res = await fetch(`${API_BASE}/api/items`, {
+    credentials: 'include',
+  })
+
+  if (!res.ok) {
+    throw new Error(`Fetch items failed: ${res.status}`)
+  }
+
+  const data = (await res.json()) as { items: ItemSummary[] }
+  return data.items
+}
+
+export async function createItem(
+  name: string,
+  threshold: number | null,
+): Promise<ItemSummary> {
+  const res = await fetch(`${API_BASE}/api/items`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ name, threshold }),
+  })
+
+  if (!res.ok) {
+    throw new Error(`Create item failed: ${res.status}`)
+  }
+
+  return res.json() as Promise<ItemSummary>
+}
+
+export async function linkIdentifier(
+  itemId: number,
+  identifier: string,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/item-identifiers`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ itemId, identifier }),
+  })
+
+  if (!res.ok) {
+    throw new Error(`Link identifier failed: ${res.status}`)
+  }
+}
 
 export async function adjustStock(
   itemId: number,

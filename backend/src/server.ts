@@ -7,6 +7,7 @@ import helmet from '@fastify/helmet'
 import { queryOne } from './db'
 import scanRoutes from './routes/scan'
 import stockRoutes from './routes/stock'
+import itemsRoutes from './routes/items'
 
 const isProd = process.env.NODE_ENV === 'production'
 const PORT = Number(process.env.PORT) || 3000
@@ -53,6 +54,7 @@ async function buildServer() {
 
   await fastify.register(scanRoutes)
   await fastify.register(stockRoutes)
+  await fastify.register(itemsRoutes)
   
   return fastify
 }

@@ -1,6 +1,15 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { sendScan, adjustStock, type ScanMode, type ScanResponse } from './api'
+import { computed, onMounted, ref, watch } from 'vue'
+import {
+  sendScan,
+  adjustStock,
+  fetchAllItems,
+  createItem,
+  linkIdentifier,
+  type ScanMode,
+  type ScanResponse,
+  type ItemSummary,
+} from './api'
 
 const scanValue = ref('')
 const mode = ref<ScanMode>('OUT')
@@ -12,6 +21,19 @@ const scanInput = ref<HTMLInputElement | null>(null)
 // New: location selection state
 const selectedLocationId = ref<number | null>(null)
 const selectedLocationName = ref<string | null>(null)
+
+// Unknown-IN resolution state
+const allItems = ref<ItemSummary[]>([])
+const itemsLoaded = ref(false)
+const itemSearch = ref('')
+const newItemName = ref('')
+const newItemThreshold = ref<number | null>(null)
+
+const filteredItems = computed(() =>
+  allItems.value.filter((item) =>
+    item.name.toLowerCase().includes(itemSearch.value.toLowerCase()),
+  ),
+)
 
 // Optional: hardcoded location definitions for now
 const LOCATION_DEFS: Record<string, { id: number; name: string }> = {
@@ -124,6 +146,92 @@ async function adjustLocation(loc: { locationId: number }, delta: number) {
   }
 }
 
+async function ensureItemsLoaded() {
+  if (!itemsLoaded.value) {
+    allItems.value = await fetchAllItems()
+    itemsLoaded.value = true
+  }
+}
+
+async function resolveUnknownByCreate() {
+  if (
+    !lastResponse.value ||
+    lastResponse.value.status !== 'unknown_identifier' ||
+    mode.value !== 'IN'
+  ) {
+    return
+  }
+
+  const trimmedName = newItemName.value.trim()
+  if (!trimmedName) return
+
+  const barcode = lastResponse.value.barcode
+  error.value = null
+
+  try {
+    const normalizedThreshold = Number.isFinite(newItemThreshold.value)
+      ? newItemThreshold.value
+      : null
+
+    const created = await createItem(trimmedName, normalizedThreshold)
+    await linkIdentifier(created.id, barcode)
+
+    newItemName.value = ''
+    newItemThreshold.value = null
+
+    const result = await sendScan(
+      barcode,
+      'IN',
+      selectedLocationId.value ?? null,
+    )
+    lastResponse.value = result
+  } catch (err: any) {
+    error.value = err?.message ?? 'Unknown error'
+  } finally {
+    focusInput()
+  }
+}
+
+async function resolveUnknownByLink(item: ItemSummary) {
+  if (
+    !lastResponse.value ||
+    lastResponse.value.status !== 'unknown_identifier' ||
+    mode.value !== 'IN'
+  ) {
+    return
+  }
+
+  const barcode = lastResponse.value.barcode
+  error.value = null
+
+  try {
+    await linkIdentifier(item.id, barcode)
+
+    const result = await sendScan(
+      barcode,
+      'IN',
+      selectedLocationId.value ?? null,
+    )
+    lastResponse.value = result
+  } catch (err: any) {
+    error.value = err?.message ?? 'Unknown error'
+  } finally {
+    focusInput()
+  }
+}
+
+watch(
+  () => ({
+    status: lastResponse.value?.status,
+    mode: mode.value,
+  }),
+  async ({ status, mode }) => {
+    if (status === 'unknown_identifier' && mode === 'IN') {
+      await ensureItemsLoaded()
+    }
+  },
+)
+
 onMounted(focusInput)
 </script>
 
@@ -196,10 +304,70 @@ onMounted(focusInput)
 
               <div v-if="lastResponse.status === 'unknown_identifier'">
                 <h2>Unknown identifier</h2>
-                <p>
-                  This barcode is not linked to any item yet.
-                </p>
-                <!-- later: buttons like "Create item" / "Link to existing" -->
+                <div v-if="mode !== 'IN'">
+                  <p>
+                    This barcode is not linked to any item yet.
+                  </p>
+                </div>
+                <div v-else class="unknown-panel">
+                  <p>
+                    This barcode is not linked to any item for IN mode. Create a new item or link to an existing one, then we will add it here automatically.
+                  </p>
+
+                  <div class="unknown-section">
+                    <h3>Create new item</h3>
+                    <input
+                      v-model="newItemName"
+                      type="text"
+                      class="scan-form__input"
+                      placeholder="Item name"
+                    />
+                    <input
+                      v-model.number="newItemThreshold"
+                      type="number"
+                      class="scan-form__input"
+                      placeholder="Threshold (optional)"
+                    />
+                    <button
+                      type="button"
+                      class="scan-form__submit"
+                      @click="resolveUnknownByCreate"
+                    >
+                      Create item and add here
+                    </button>
+                  </div>
+
+                  <div class="unknown-section">
+                    <h3>Link to existing item</h3>
+                    <input
+                      v-model="itemSearch"
+                      type="text"
+                      class="scan-form__input"
+                      placeholder="Search items…"
+                      @focus="ensureItemsLoaded"
+                    />
+                    <ul class="item-list">
+                      <li v-for="item in filteredItems" :key="item.id" class="item-row">
+                        <div>
+                          <strong>{{ item.name }}</strong>
+                          <span v-if="item.threshold !== null" class="muted">
+                            · Threshold: {{ item.threshold }}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          class="loc-btn"
+                          @click="resolveUnknownByLink(item)"
+                        >
+                          Link &amp; add here
+                        </button>
+                      </li>
+                      <li v-if="filteredItems.length === 0" class="muted">
+                        No matching items.
+                      </li>
+                    </ul>
+                  </div>
+                </div>
               </div>
 
               <div v-else-if="lastResponse.status === 'known'">
@@ -514,6 +682,38 @@ onMounted(focusInput)
     background: #4b5563;
     border-color: #e5e7eb;
   }
+}
+
+.unknown-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.unknown-section {
+  border: 1px solid #1f2937;
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  background: #0b1223;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.item-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.item-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 </style>
