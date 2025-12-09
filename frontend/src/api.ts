@@ -41,6 +41,33 @@ export type ScanResponse = UnknownIdentifierResponse | KnownIdentifierResponse
 const API_BASE =
   import.meta.env.VITE_API_BASE || 'http://localhost:3000'
 
+export async function adjustStock(
+  itemId: number,
+  locationId: number,
+  delta: number,
+): Promise<{
+  item: { id: number; name: string; threshold: number | null }
+  locations: { locationId: number; locationName: string; amount: number }[]
+}> {
+  const res = await fetch(`${API_BASE}/api/stock/adjust`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ itemId, locationId, delta }),
+  })
+
+  if (!res.ok) {
+    throw new Error(`Adjust stock failed: ${res.status}`)
+  }
+
+  return res.json() as Promise<{
+    item: { id: number; name: string; threshold: number | null }
+    locations: { locationId: number; locationName: string; amount: number }[]
+  }>
+}
+
 export async function sendScan(
   barcode: string,
   mode: ScanMode,

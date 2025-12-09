@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { sendScan, type ScanMode, type ScanResponse } from './api'
+import { onMounted, ref } from 'vue'
+import { sendScan, adjustStock, type ScanMode, type ScanResponse } from './api'
 
 const scanValue = ref('')
-const mode = ref<ScanMode>('IN')
+const mode = ref<ScanMode>('OUT')
 const lastResponse = ref<ScanResponse | null>(null)
 const isSubmitting = ref(false)
 const error = ref<string | null>(null)
+const scanInput = ref<HTMLInputElement | null>(null)
 
 // New: location selection state
 const selectedLocationId = ref<number | null>(null)
@@ -26,6 +27,12 @@ function setMode(newMode: ScanMode) {
 function setLocation(id: number, name: string) {
   selectedLocationId.value = id
   selectedLocationName.value = name
+}
+
+function focusInput() {
+  if (scanInput.value) {
+    scanInput.value.focus()
+  }
 }
 
 // Returns true if this was a command and has been handled
@@ -79,6 +86,7 @@ async function onSubmit() {
     scanValue.value = ''
     // Optionally keep lastResponse visible, or clear it:
     // lastResponse.value = null
+    focusInput()
     return
   }
 
@@ -95,8 +103,28 @@ async function onSubmit() {
     lastResponse.value = null
   } finally {
     isSubmitting.value = false
+    focusInput()
   }
 }
+
+async function adjustLocation(loc: { locationId: number }, delta: number) {
+  if (!lastResponse.value || lastResponse.value.status !== 'known') return
+
+  const itemId = lastResponse.value.item.id
+
+  try {
+    const result = await adjustStock(itemId, loc.locationId, delta)
+    lastResponse.value = {
+      ...lastResponse.value,
+      item: result.item,
+      locations: result.locations,
+    }
+  } finally {
+    focusInput()
+  }
+}
+
+onMounted(focusInput)
 </script>
 
 
@@ -109,117 +137,129 @@ async function onSubmit() {
 
     <main class="app__main">
       <div class="scan">
-        <p class="current-status">
-          Mode: {{ mode }}
-          <span v-if="selectedLocationName">
-            · Location: {{ selectedLocationName }}
-          </span>
-        </p>
-
-        <form @submit.prevent="onSubmit" class="scan-form">
-          <div class="scan-form__mode">
-            <button type="button" :class="['mode-btn', { 'mode-btn--active': mode === 'IN' }]" @click="setMode('IN')">
-              In
-            </button>
-            <button type="button" :class="['mode-btn', { 'mode-btn--active': mode === 'OUT' }]" @click="setMode('OUT')">
-              Out
-            </button>
-            <button type="button" :class="['mode-btn', { 'mode-btn--active': mode === 'STATUS' }]"
-              @click="setMode('STATUS')">
-              Status
-            </button>
-          </div>
-          <div class="location-buttons">
-            <button type="button" :class="['loc-btn', { 'loc-btn--active': selectedLocationId === 1 }]"
-              @click="setLocation(1, 'Viktualierum')">
-              Viktualierum
-            </button>
-            <button type="button" :class="['loc-btn', { 'loc-btn--active': selectedLocationId === 2 }]"
-              @click="setLocation(2, 'Kontor')">
-              Kontor
-            </button>
-            <button type="button" :class="['loc-btn', { 'loc-btn--active': selectedLocationId === 3 }]"
-              @click="setLocation(3, 'Kummefryser')">
-              Kummefryser
-            </button>
-          </div>
-
-
-          <input v-model="scanValue" class="scan-form__input" type="text" autofocus autocomplete="off"
-            placeholder="Scan or type barcode…" />
-
-          <button type="submit" class="scan-form__submit" :disabled="isSubmitting">
-            {{ isSubmitting ? 'Working…' : 'Submit' }}
-          </button>
-        </form>
-
-        <div class="scan-result">
-          <p v-if="error" class="status status--error">
-            {{ error }}
+        <div class="scan__controls">
+          <p class="current-status">
+            Mode: {{ mode }}
+            <span v-if="selectedLocationName">
+              · Location: {{ selectedLocationName }}
+            </span>
           </p>
 
-          <template v-else-if="lastResponse">
-            <p class="status status--ok">
-              Mode: {{ lastResponse.mode }} · Barcode: {{ lastResponse.barcode }}
+          <form @submit.prevent="onSubmit" class="scan-form">
+            <div class="scan-form__mode">
+              <button type="button" :class="['mode-btn', { 'mode-btn--active': mode === 'IN' }]" @click="setMode('IN')">
+                In
+              </button>
+              <button type="button" :class="['mode-btn', { 'mode-btn--active': mode === 'OUT' }]" @click="setMode('OUT')">
+                Out
+              </button>
+              <button type="button" :class="['mode-btn', { 'mode-btn--active': mode === 'STATUS' }]"
+                @click="setMode('STATUS')">
+                Status
+              </button>
+            </div>
+            <div class="location-buttons">
+              <button type="button" :class="['loc-btn', { 'loc-btn--active': selectedLocationId === 1 }]"
+                @click="setLocation(1, 'Viktualierum')">
+                Viktualierum
+              </button>
+              <button type="button" :class="['loc-btn', { 'loc-btn--active': selectedLocationId === 2 }]"
+                @click="setLocation(2, 'Kontor')">
+                Kontor
+              </button>
+              <button type="button" :class="['loc-btn', { 'loc-btn--active': selectedLocationId === 3 }]"
+                @click="setLocation(3, 'Kummefryser')">
+                Kummefryser
+              </button>
+            </div>
+
+
+            <input v-model="scanValue" ref="scanInput" class="scan-form__input" type="text" autofocus autocomplete="off"
+              placeholder="Scan or type barcode…" />
+
+            <button type="submit" class="scan-form__submit" :disabled="isSubmitting">
+              {{ isSubmitting ? 'Working…' : 'Submit' }}
+            </button>
+          </form>
+        </div>
+
+        <div class="scan__output">
+          <div class="card scan-result">
+            <p v-if="error" class="status status--error">
+              {{ error }}
             </p>
 
-            <div v-if="lastResponse.status === 'unknown_identifier'" class="card">
-              <h2>Unknown identifier</h2>
-              <p>
-                This barcode is not linked to any item yet.
-              </p>
-              <!-- later: buttons like "Create item" / "Link to existing" -->
-            </div>
-
-            <div v-else-if="lastResponse.status === 'known'" class="card">
-              <h2>{{ lastResponse.item.name }}</h2>
-              <p class="muted">
-                Item ID: {{ lastResponse.item.id }}
-                <span v-if="lastResponse.item.threshold !== null">
-                  · Threshold: {{ lastResponse.item.threshold }}
-                </span>
+            <template v-else-if="lastResponse">
+              <p class="status status--ok">
+                Mode: {{ lastResponse.mode }} · Barcode: {{ lastResponse.barcode }}
               </p>
 
-              <!-- Change summary (OUT mode) -->
-              <div v-if="lastResponse.change" class="change">
-                <p v-if="lastResponse.change.action === 'OUT'">
-                  <strong>Change:</strong>
-                  Took {{ lastResponse.change.quantity }} from
-                  "{{ lastResponse.change.locationName }}"
-                  ({{ lastResponse.change.previousAmount }} → {{ lastResponse.change.newAmount }}).
+              <div v-if="lastResponse.status === 'unknown_identifier'">
+                <h2>Unknown identifier</h2>
+                <p>
+                  This barcode is not linked to any item yet.
                 </p>
-                <p v-else-if="lastResponse.change.action === 'IN'">
-                  <strong>Change:</strong>
-                  Added 1 to "{{ lastResponse.change.locationName }}"
-                  ({{ lastResponse.change.previousAmount }} → {{ lastResponse.change.newAmount }}).
-                </p>
+                <!-- later: buttons like "Create item" / "Link to existing" -->
               </div>
 
-              <p v-else-if="lastResponse.warning === 'no_stock_available'" class="status status--error">
-                No stock available to take out.
-              </p>
-              <p v-else-if="lastResponse.warning === 'no_stock_in_selected_location'" class="status status--error">
-                No stock available in the selected location.
-              </p>
-              <p v-else-if="lastResponse.warning === 'no_location_selected_for_in'" class="status status--error">
-                Select a location before scanning IN.
-              </p>
+              <div v-else-if="lastResponse.status === 'known'">
+                <h2>{{ lastResponse.item.name }}</h2>
+                <p class="muted">
+                  Item ID: {{ lastResponse.item.id }}
+                  <span v-if="lastResponse.item.threshold !== null">
+                    · Threshold: {{ lastResponse.item.threshold }}
+                  </span>
+                </p>
 
-              <!-- Stock per location -->
-              <div v-if="lastResponse.locations.length > 0">
-                <h3>Stock per location</h3>
-                <ul class="locations">
-                  <li v-for="loc in lastResponse.locations" :key="loc.locationId">
+                <!-- Change summary (OUT mode) -->
+                <div v-if="lastResponse.change" class="change">
+                  <p v-if="lastResponse.change.action === 'OUT'">
+                    <strong>Change:</strong>
+                    Took {{ lastResponse.change.quantity }} from
+                    "{{ lastResponse.change.locationName }}"
+                    ({{ lastResponse.change.previousAmount }} → {{ lastResponse.change.newAmount }}).
+                  </p>
+                  <p v-else-if="lastResponse.change.action === 'IN'">
+                    <strong>Change:</strong>
+                    Added 1 to "{{ lastResponse.change.locationName }}"
+                    ({{ lastResponse.change.previousAmount }} → {{ lastResponse.change.newAmount }}).
+                  </p>
+                </div>
+
+                <p v-else-if="lastResponse.warning === 'no_stock_available'" class="status status--error">
+                  No stock available to take out.
+                </p>
+                <p v-else-if="lastResponse.warning === 'no_stock_in_selected_location'" class="status status--error">
+                  No stock available in the selected location.
+                </p>
+                <p v-else-if="lastResponse.warning === 'no_location_selected_for_in'" class="status status--error">
+                  Select a location before scanning IN.
+                </p>
+
+                <!-- Stock per location -->
+                <div v-if="lastResponse.locations.length > 0">
+                  <h3>Stock per location</h3>
+                  <ul class="locations">
+                  <li v-for="loc in lastResponse.locations" :key="loc.locationId" class="loc-row">
                     <span class="loc-name">{{ loc.locationName }}</span>
-                    <span class="loc-amount">{{ loc.amount }}</span>
+                    <div class="loc-controls">
+                      <button type="button" class="loc-btn--tiny" @click="adjustLocation(loc, -1)">-</button>
+                      <span class="loc-amount">{{ loc.amount }}</span>
+                      <button type="button" class="loc-btn--tiny" @click="adjustLocation(loc, +1)">+</button>
+                    </div>
                   </li>
-                </ul>
+                  </ul>
+                </div>
+                <p v-else class="muted">
+                  No stock registered yet for this item.
+                </p>
               </div>
-              <p v-else class="muted">
-                No stock registered yet for this item.
-              </p>
-            </div>
-          </template>
+            </template>
+
+            <p v-else class="muted">
+              Scan a barcode to see results.
+            </p>
+          </div>
         </div>
       </div>
     </main>
@@ -248,15 +288,15 @@ async function onSubmit() {
   &__main {
     flex: 1;
     display: flex;
+    flex-direction: column;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
     padding: 1.5rem;
   }
 }
 
 .scan-form {
   width: 100%;
-  max-width: 480px;
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -317,33 +357,40 @@ async function onSubmit() {
   }
 }
 
-.status {
-  font-size: 0.9rem;
-
-  &--ok {
-    color: #22c55e;
-  }
-
-  &--error {
-    color: #f97316;
-  }
-}
-
 .scan {
   width: 100%;
-  max-width: 520px;
+  max-width: 720px;
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 1.25rem;
+}
+
+.scan__controls {
+  width: 100%;
+  padding: 1rem 1.25rem;
+  border: 1px solid #1f2937;
+  border-radius: 0.75rem;
+  background: #0b1223;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.scan__output {
+  width: 100%;
 }
 
 .scan-result {
-  min-height: 120px;
+  min-height: 220px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 
 .status {
   font-size: 0.9rem;
-  margin-bottom: 0.5rem;
+  margin: 0 0 0.5rem;
 
   &--ok {
     color: #22c55e;
@@ -388,10 +435,12 @@ async function onSubmit() {
   flex-direction: column;
   gap: 0.25rem;
 
-  li {
+  .loc-row {
     display: flex;
     justify-content: space-between;
+    align-items: center;
     font-size: 0.9rem;
+    gap: 0.5rem;
   }
 
   .loc-name {
@@ -400,6 +449,31 @@ async function onSubmit() {
 
   .loc-amount {
     font-variant-numeric: tabular-nums;
+    min-width: 1.5rem;
+    text-align: center;
+  }
+}
+
+.loc-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.loc-btn--tiny {
+  padding: 0.1rem 0.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid #4b5563;
+  background: #0f172a;
+  color: #e5e7eb;
+  cursor: pointer;
+
+  &:hover {
+    background: #1f2937;
+  }
+
+  &:active {
+    transform: translateY(1px);
   }
 }
 
