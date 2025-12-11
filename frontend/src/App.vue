@@ -15,6 +15,7 @@ const scanValue = ref('')
 const mode = ref<ScanMode>('OUT')
 const lastResponse = ref<ScanResponse | null>(null)
 const isSubmitting = ref(false)
+const scanLocked = ref(false)
 const error = ref<string | null>(null)
 const scanInput = ref<HTMLInputElement | null>(null)
 const unknownInError = ref<string | null>(null)
@@ -131,6 +132,7 @@ async function onSubmit() {
   }
 
   // 2) Otherwise treat as a product/asset barcode
+  scanLocked.value = true
   isSubmitting.value = true
   error.value = null
 
@@ -143,6 +145,7 @@ async function onSubmit() {
     lastResponse.value = null
   } finally {
     isSubmitting.value = false
+    scanLocked.value = false
     focusInput()
   }
 }
@@ -153,6 +156,7 @@ async function adjustLocation(loc: { locationId: number }, delta: number) {
   const itemId = lastResponse.value.item.id
 
   try {
+    scanLocked.value = true
     const result = await adjustStock(itemId, loc.locationId, delta)
     lastResponse.value = {
       ...lastResponse.value,
@@ -160,6 +164,7 @@ async function adjustLocation(loc: { locationId: number }, delta: number) {
       locations: result.locations,
     }
   } finally {
+    scanLocked.value = false
     focusInput()
   }
 }
@@ -192,6 +197,7 @@ async function resolveUnknownByCreate() {
 
   const barcode = lastResponse.value.barcode
   error.value = null
+  scanLocked.value = true
 
   try {
     const normalizedThreshold = Number.isFinite(newItemThreshold.value)
@@ -213,6 +219,7 @@ async function resolveUnknownByCreate() {
   } catch (err: any) {
     error.value = err?.message ?? 'Ukendt fejl'
   } finally {
+    scanLocked.value = false
     focusInput()
   }
 }
@@ -235,6 +242,7 @@ async function resolveUnknownByLink(item: ItemSummary) {
 
   const barcode = lastResponse.value.barcode
   error.value = null
+  scanLocked.value = true
 
   try {
     await linkIdentifier(item.id, barcode)
@@ -248,6 +256,7 @@ async function resolveUnknownByLink(item: ItemSummary) {
   } catch (err: any) {
     error.value = err?.message ?? 'Ukendt fejl'
   } finally {
+    scanLocked.value = false
     focusInput()
   }
 }
@@ -328,7 +337,7 @@ onBeforeUnmount(() => {
 
 
             <input v-model="scanValue" ref="scanInput" class="scan-form__input" type="text" autofocus autocomplete="off"
-              placeholder="Scan eller indtast stregkode…" />
+              placeholder="Scan eller indtast stregkode…" :disabled="scanLocked" />
 
             <button type="submit" class="scan-form__submit" :disabled="isSubmitting">
               {{ isSubmitting ? 'Arbejder…' : 'Send' }}
