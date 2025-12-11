@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   sendScan,
   adjustStock,
@@ -62,6 +62,17 @@ function focusInput() {
   if (scanInput.value) {
     scanInput.value.focus()
   }
+}
+
+function cancelUnknownIn() {
+  if (lastResponse.value?.status === 'unknown_identifier') {
+    lastResponse.value = null
+  }
+  unknownInError.value = null
+  newItemName.value = ''
+  newItemThreshold.value = null
+  itemSearch.value = ''
+  focusInput()
 }
 
 // Returns true if this was a command and has been handled
@@ -241,6 +252,12 @@ async function resolveUnknownByLink(item: ItemSummary) {
   }
 }
 
+function handleKeydown(e: KeyboardEvent) {
+  if (showUnknownInModal.value && e.key === 'Escape') {
+    cancelUnknownIn()
+  }
+}
+
 watch(
   () => ({
     status: lastResponse.value?.status,
@@ -253,7 +270,14 @@ watch(
   },
 )
 
-onMounted(focusInput)
+onMounted(() => {
+  focusInput()
+  window.addEventListener('keydown', handleKeydown)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleKeydown)
+})
 </script>
 
 
@@ -399,6 +423,9 @@ onMounted(focusInput)
 
     <div v-if="showUnknownInModal" class="modal-backdrop">
       <div class="modal">
+        <button type="button" class="modal-close" @click="cancelUnknownIn">
+          Luk
+        </button>
         <h2>Ukendt identifikator</h2>
         <p>
           Denne stregkode er ikke knyttet til nogen vare i IND-tilstand. Opret en ny vare eller link til en eksisterende, så tilføjer vi den automatisk her.
@@ -793,6 +820,7 @@ onMounted(focusInput)
   background: #020617;
   border: 1px solid #1f2937;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  position: relative;
 
   h2 {
     margin: 0 0 0.35rem;
@@ -809,6 +837,22 @@ onMounted(focusInput)
 
 .modal-location {
   margin: 0.25rem 0 0.75rem;
+}
+
+.modal-close {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid #4b5563;
+  background: #0b1223;
+  color: #e5e7eb;
+  cursor: pointer;
+
+  &:hover {
+    background: #111827;
+  }
 }
 
 </style>
