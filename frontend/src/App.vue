@@ -26,15 +26,16 @@ const selectedLocationName = ref<string | null>(null)
 
 // Unknown-IN resolution state
 const allItems = ref<ItemSummary[]>([])
-const itemsLoaded = ref(false)
-const itemSearch = ref('')
 const newItemName = ref('')
 const newItemThreshold = ref<number | null>(null)
+const highlightedIndex = ref(-1)
 
-const filteredItems = computed(() =>
-  allItems.value.filter((item) =>
-    item.name.toLowerCase().includes(itemSearch.value.toLowerCase()),
-  ),
+const matchingItems = computed(() =>
+  newItemName.value
+    ? allItems.value.filter((item) =>
+        item.name.toLowerCase().includes(newItemName.value.toLowerCase()),
+      )
+    : [],
 )
 
 const showUnknownInModal = computed(
@@ -42,6 +43,20 @@ const showUnknownInModal = computed(
     lastResponse.value?.status === 'unknown_identifier' &&
     mode.value === 'IN',
 )
+
+watch(newItemName, () => {
+  highlightedIndex.value = -1
+})
+
+watch(showUnknownInModal, async (open) => {
+  if (open) {
+    unknownInError.value = null
+    newItemName.value = ''
+    newItemThreshold.value = null
+    highlightedIndex.value = -1
+    allItems.value = await fetchAllItems()
+  }
+})
 
 // Optional: hardcoded location definitions for now
 const LOCATION_DEFS: Record<string, { id: number; name: string }> = {
@@ -72,7 +87,7 @@ function cancelUnknownIn() {
   unknownInError.value = null
   newItemName.value = ''
   newItemThreshold.value = null
-  itemSearch.value = ''
+  highlightedIndex.value = -1
   focusInput()
 }
 
@@ -169,13 +184,6 @@ async function adjustLocation(loc: { locationId: number }, delta: number) {
   }
 }
 
-async function ensureItemsLoaded() {
-  if (!itemsLoaded.value) {
-    allItems.value = await fetchAllItems()
-    itemsLoaded.value = true
-  }
-}
-
 async function resolveUnknownByCreate() {
   unknownInError.value = null
 
@@ -262,22 +270,39 @@ async function resolveUnknownByLink(item: ItemSummary) {
 }
 
 function handleKeydown(e: KeyboardEvent) {
-  if (showUnknownInModal.value && e.key === 'Escape') {
+  if (!showUnknownInModal.value) return
+
+  if (e.key === 'Escape') {
     cancelUnknownIn()
+    return
+  }
+
+  const totalMatches = matchingItems.value.length
+  if (e.key === 'ArrowDown' && totalMatches > 0) {
+    highlightedIndex.value =
+      highlightedIndex.value >= totalMatches - 1 ? 0 : highlightedIndex.value + 1
+    e.preventDefault()
+    return
+  }
+
+  if (e.key === 'ArrowUp' && totalMatches > 0) {
+    highlightedIndex.value =
+      highlightedIndex.value <= 0 ? totalMatches - 1 : highlightedIndex.value - 1
+    e.preventDefault()
+    return
+  }
+
+  if (e.key === 'Enter') {
+    if (highlightedIndex.value >= 0) {
+      const match = matchingItems.value[highlightedIndex.value]
+      if (match) {
+        resolveUnknownByLink(match)
+        e.preventDefault()
+      }
+    }
+    return
   }
 }
-
-watch(
-  () => ({
-    status: lastResponse.value?.status,
-    mode: mode.value,
-  }),
-  async ({ status, mode }) => {
-    if (status === 'unknown_identifier' && mode === 'IN') {
-      await ensureItemsLoaded()
-    }
-  },
-)
 
 onMounted(() => {
   focusInput()
@@ -478,6 +503,16 @@ onBeforeUnmount(() => {
               class="scan-form__input"
               placeholder="Varenavn"
             />
+            <ul v-if="matchingItems.length > 0" class="suggestions">
+              <li
+                v-for="(item, index) in matchingItems"
+                :key="item.id"
+                :class="['suggestion', { 'suggestion--active': index === highlightedIndex }]"
+                @click="resolveUnknownByLink(item)"
+              >
+                {{ item.name }}
+              </li>
+            </ul>
             <input
               v-model.number="newItemThreshold"
               type="number"
@@ -491,37 +526,6 @@ onBeforeUnmount(() => {
             >
               Opret vare og tilføj her
             </button>
-          </div>
-
-          <div class="unknown-section">
-            <h3>Link til eksisterende vare</h3>
-            <input
-              v-model="itemSearch"
-              type="text"
-              class="scan-form__input"
-              placeholder="Søg varer…"
-              @focus="ensureItemsLoaded"
-            />
-            <ul class="item-list">
-              <li v-for="item in filteredItems" :key="item.id" class="item-row">
-                <div>
-                  <strong>{{ item.name }}</strong>
-                  <span v-if="item.threshold !== null" class="muted">
-                    · Tærskel: {{ item.threshold }}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  class="loc-btn"
-                  @click="resolveUnknownByLink(item)"
-                >
-                  Link &amp; tilføj her
-                </button>
-              </li>
-              <li v-if="filteredItems.length === 0" class="muted">
-                Ingen matchende varer.
-              </li>
-            </ul>
           </div>
         </div>
       </div>
@@ -795,20 +799,29 @@ onBeforeUnmount(() => {
   gap: 0.5rem;
 }
 
-.item-list {
+.suggestions {
   list-style: none;
   padding: 0;
   margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
+  border: 1px solid #1f2937;
+  border-radius: 0.5rem;
+  background: #0b1223;
+  max-height: 200px;
+  overflow-y: auto;
 }
 
-.item-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.5rem;
+.suggestion {
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+
+  &--active {
+    background: #111827;
+    color: #e5e7eb;
+  }
+
+  & + & {
+    border-top: 1px solid #1f2937;
+  }
 }
 
 .modal-backdrop {
