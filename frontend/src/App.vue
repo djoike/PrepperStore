@@ -12,6 +12,7 @@ import {
   type ScanResponse,
   type ItemSummary,
 } from './api'
+import headerLogo from '../assets/logo.png'
 
 const isAuthenticated = ref(false)
 const authLoading = ref(true)
@@ -433,8 +434,7 @@ async function onLoginSubmit() {
 <template>
   <div class="app">
     <header class="app__header">
-      <div class="logo-placeholder" aria-hidden="true">Logo</div>
-      <h1 class="app__title">PrepperStore</h1>
+      <img class="app__logo" :src="headerLogo" alt="PrepperStore logo" />
     </header>
 
     <main class="app__main">
@@ -709,8 +709,8 @@ body,
   &__header {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    padding: 0.5rem 0.75rem;
+    gap: 0.35rem;
+    padding: 0.25rem 0.6rem;
     border-bottom: 1px solid #1f2937;
     background: #0b1223;
   }
@@ -727,7 +727,7 @@ body,
     flex-direction: column;
     align-items: stretch;
     justify-content: flex-start;
-    padding: 0.75rem;
+    padding: 0 0.75rem 0.75rem 0.75rem;
     gap: 0.75rem;
     width: 100%;
     overflow: hidden;
@@ -746,6 +746,16 @@ body,
   justify-content: center;
   font-size: 0.7rem;
   text-transform: uppercase;
+}
+
+.app__logo {
+  display: block;
+  max-width: 140px;
+  max-height: 32px;
+  padding: 0.15rem 0.25rem;
+  width: auto;
+  height: auto;
+  object-fit: contain;
 }
 
 .scan-form {
@@ -817,6 +827,7 @@ body,
   position: sticky;
   top: 0.75rem;
   z-index: 5;
+  margin-bottom:0.75rem;
 }
 
 .scan__output {
