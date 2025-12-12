@@ -27,6 +27,8 @@ const scanLocked = ref(false)
 const error = ref<string | null>(null)
 const scanInput = ref<HTMLInputElement | null>(null)
 const unknownInError = ref<string | null>(null)
+const resultClearTimer = ref<number | null>(null)
+const newItemInputRef = ref<HTMLInputElement | null>(null)
 
 // New: location selection state
 const selectedLocationId = ref<number | null>(null)
@@ -52,6 +54,70 @@ const showUnknownInModal = computed(
     mode.value === 'IN',
 )
 
+const limitedLocations = computed(() =>
+  lastResponse.value?.status === 'known'
+    ? lastResponse.value.locations.slice(0, 3)
+    : [],
+)
+
+const totalStock = computed(() => {
+  if (lastResponse.value?.status !== 'known') return null
+  return lastResponse.value.locations.reduce((sum, loc) => sum + loc.amount, 0)
+})
+
+const statusText = computed(() => {
+  if (error.value) return error.value
+
+  const resp = lastResponse.value
+  if (!resp) return 'Ingen scanning endnu'
+
+  if (resp.status === 'unknown_identifier') {
+    return mode.value === 'IN'
+      ? 'Ukendt kode - kræver handling'
+      : 'Ukendt kode'
+  }
+
+  if (resp.status === 'known') {
+    if (resp.warning === 'no_stock_available') return 'Intet lager'
+    if (resp.warning === 'no_stock_in_selected_location')
+      return 'Ingen lager i valgt lokation'
+    if (resp.warning === 'no_location_selected_for_in')
+      return 'Vælg lokation for IND'
+
+    if (resp.change?.action === 'OUT') {
+      return `Tog ${resp.change.quantity} fra ${resp.change.locationName}`
+    }
+    if (resp.change?.action === 'IN') {
+      return `Tilføjede ${resp.change.quantity ?? 1} til ${resp.change.locationName}`
+    }
+    return 'OK'
+  }
+
+  return '—'
+})
+
+function clearResultTimer() {
+  if (resultClearTimer.value !== null) {
+    window.clearTimeout(resultClearTimer.value)
+    resultClearTimer.value = null
+  }
+}
+
+function scheduleResultClear() {
+  clearResultTimer()
+
+  if (
+    lastResponse.value &&
+    (lastResponse.value.status === 'known' ||
+      lastResponse.value.status === 'unknown_identifier')
+  ) {
+    resultClearTimer.value = window.setTimeout(() => {
+      lastResponse.value = null
+      error.value = null
+    }, 60_000)
+  }
+}
+
 watch(newItemName, () => {
   highlightedIndex.value = -1
 })
@@ -63,8 +129,16 @@ watch(showUnknownInModal, async (open) => {
     newItemThreshold.value = null
     highlightedIndex.value = -1
     allItems.value = await fetchAllItems()
+    nextTick(() => newItemInputRef.value?.focus())
   }
 })
+
+watch(
+  () => lastResponse.value,
+  () => {
+    scheduleResultClear()
+  },
+)
 
 // Optional: hardcoded location definitions for now
 const LOCATION_DEFS: Record<string, { id: number; name: string }> = {
@@ -99,7 +173,7 @@ function cancelUnknownIn() {
   newItemName.value = ''
   newItemThreshold.value = null
   highlightedIndex.value = -1
-   scanLocked.value = false
+  scanLocked.value = false
   focusInput()
 }
 
@@ -339,6 +413,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeydown)
+  clearResultTimer()
 })
 
 async function onLoginSubmit() {
@@ -358,8 +433,8 @@ async function onLoginSubmit() {
 <template>
   <div class="app">
     <header class="app__header">
-      <h1>PrepperStore</h1>
-      <p class="app__subtitle">Simpel prepper lagerstyring</p>
+      <div class="logo-placeholder" aria-hidden="true">Logo</div>
+      <h1 class="app__title">PrepperStore</h1>
     </header>
 
     <main class="app__main">
@@ -367,60 +442,44 @@ async function onLoginSubmit() {
         Logger ind…
       </div>
 
-      <div v-else-if="!isAuthenticated" class="card login-card">
-        <h2>Login</h2>
-        <p class="muted">Indtast adgangskoden for at fortsætte.</p>
+      <div v-else-if="!isAuthenticated" class="login-panel card">
         <form @submit.prevent="onLoginSubmit" class="login-form">
+          <label class="login-label" for="login-password">Adgangskode</label>
           <input
+            id="login-password"
             v-model="loginPassword"
             ref="loginInputRef"
             type="password"
-            class="scan-form__input"
-            placeholder="Adgangskode"
+            class="login-input"
+            placeholder="••••••••"
+            autocomplete="current-password"
+            autofocus
           />
-          <button type="submit" class="scan-form__submit">Log ind</button>
-          <p v-if="loginError" class="status status--error">{{ loginError }}</p>
+          <button type="submit" class="login-submit">Log ind</button>
         </form>
+        <p v-if="loginError" class="status status--error login-error" role="alert">{{ loginError }}</p>
       </div>
 
       <div v-else class="scan">
         <div class="scan__controls">
-          <p class="current-status">
-            Tilstand: {{ mode }}
-            <span v-if="selectedLocationName">
-              · Lokation: {{ selectedLocationName }}
-            </span>
-          </p>
-
           <form @submit.prevent="onSubmit" class="scan-form">
-            <div class="scan-form__mode">
-              <button type="button" :class="['mode-btn', { 'mode-btn--active': mode === 'IN' }]" @click="setMode('IN')">
-                Ind
-              </button>
-              <button type="button" :class="['mode-btn', { 'mode-btn--active': mode === 'OUT' }]" @click="setMode('OUT')">
-                Ud
-              </button>
-              <button type="button" :class="['mode-btn', { 'mode-btn--active': mode === 'STATUS' }]"
-                @click="setMode('STATUS')">
-                Status
-              </button>
+            <div class="scan-form__header">
+              <p class="status-line">
+                Tilstand: {{ mode }}
+                <span v-if="selectedLocationName">
+                  · Lokation: {{ selectedLocationName }}
+                </span>
+                <span v-else>
+                  · Lokation: ingen valgt
+                </span>
+              </p>
+              <span
+                class="lock-indicator"
+                :class="{ 'lock-indicator--locked': scanLocked || isSubmitting }"
+              >
+                {{ scanLocked || isSubmitting ? 'Låst' : 'Klar' }}
+              </span>
             </div>
-            <div class="location-buttons">
-              <button type="button" :class="['loc-btn', { 'loc-btn--active': selectedLocationId === 1 }]"
-                @click="setLocation(1, 'Viktualierum')">
-                Viktualierum
-              </button>
-              <button type="button" :class="['loc-btn', { 'loc-btn--active': selectedLocationId === 2 }]"
-                @click="setLocation(2, 'Kontor')">
-                Kontor
-              </button>
-              <button type="button" :class="['loc-btn', { 'loc-btn--active': selectedLocationId === 3 }]"
-                @click="setLocation(3, 'Kummefryser')">
-                Kummefryser
-              </button>
-            </div>
-
-
             <input v-model="scanValue" ref="scanInput" class="scan-form__input" type="text" autofocus autocomplete="off"
               placeholder="Scan eller indtast stregkode…" :disabled="scanLocked" />
 
@@ -431,85 +490,94 @@ async function onLoginSubmit() {
         </div>
 
         <div class="scan__output">
-          <div class="card scan-result">
-            <p v-if="error" class="status status--error">
-              {{ error }}
-            </p>
-
-            <template v-else-if="lastResponse">
-              <p class="status status--ok">
-                Tilstand: {{ lastResponse.mode }} · Stregkode: {{ lastResponse.barcode }}
-              </p>
-
-              <div v-if="lastResponse.status === 'unknown_identifier'">
-                <h2>Ukendt identifikator</h2>
-                <div v-if="mode !== 'IN'">
-                  <p>
-                    Denne stregkode er endnu ikke knyttet til et produkt.
-                  </p>
-                </div>
-                <div v-else>
-                  <p class="muted">Ukendt identifikator (se dialogen).</p>
-                </div>
+          <div class="terminal-panel card">
+            <div class="terminal-row terminal-row--full">
+              <span class="terminal-label">Varenavn</span>
+              <span class="terminal-value">
+                <template v-if="lastResponse?.status === 'known'">
+                  {{ lastResponse.item.name }}
+                </template>
+                <template v-else-if="lastResponse?.status === 'unknown_identifier'">
+                  Ukendt
+                </template>
+                <template v-else>
+                  —
+                </template>
+              </span>
+            </div>
+            <div class="terminal-grid">
+              <div class="terminal-row">
+                <span class="terminal-label">Handling</span>
+                <span class="terminal-value">
+                  {{ lastResponse ? lastResponse.mode : mode }}
+                </span>
               </div>
-
-              <div v-else-if="lastResponse.status === 'known'">
-                <h2>{{ lastResponse.item.name }}</h2>
-                <p class="muted">
-                  Vare-ID: {{ lastResponse.item.id }}
-                  <span v-if="lastResponse.item.threshold !== null">
-                    · Tærskel: {{ lastResponse.item.threshold }}
-                  </span>
-                </p>
-
-                <!-- Change summary (OUT mode) -->
-                <div v-if="lastResponse.change" class="change">
-                  <p v-if="lastResponse.change.action === 'OUT'">
-                    <strong>Ændring:</strong>
-                    Tog {{ lastResponse.change.quantity }} fra
-                    "{{ lastResponse.change.locationName }}"
-                    ({{ lastResponse.change.previousAmount }} → {{ lastResponse.change.newAmount }}).
-                  </p>
-                  <p v-else-if="lastResponse.change.action === 'IN'">
-                    <strong>Ændring:</strong>
-                    Tilføjede 1 til "{{ lastResponse.change.locationName }}"
-                    ({{ lastResponse.change.previousAmount }} → {{ lastResponse.change.newAmount }}).
-                  </p>
-                </div>
-
-                <p v-else-if="lastResponse.warning === 'no_stock_available'" class="status status--error">
-                  Ingen lager tilgængeligt at tage ud.
-                </p>
-                <p v-else-if="lastResponse.warning === 'no_stock_in_selected_location'" class="status status--error">
-                  Ingen lager tilgængeligt i den valgte lokation.
-                </p>
-                <p v-else-if="lastResponse.warning === 'no_location_selected_for_in'" class="status status--error">
-                  Vælg en lokation før du scanner IND.
-                </p>
-
-                <!-- Stock per location -->
-                <div v-if="lastResponse.locations.length > 0">
-                  <h3>Lager pr. lokation</h3>
-                  <ul class="locations">
-                  <li v-for="loc in lastResponse.locations" :key="loc.locationId" class="loc-row">
-                    <span class="loc-name">{{ loc.locationName }}</span>
-                    <div class="loc-controls">
-                      <button type="button" class="loc-btn--tiny" @click="adjustLocation(loc, -1)">-</button>
-                      <span class="loc-amount">{{ loc.amount }}</span>
-                      <button type="button" class="loc-btn--tiny" @click="adjustLocation(loc, +1)">+</button>
+              <div class="terminal-row">
+                <span class="terminal-label">Lokation</span>
+                <span class="terminal-value">
+                  {{ selectedLocationName || '(ingen valgt)' }}
+                </span>
+              </div>
+              <div class="terminal-row">
+                <span class="terminal-label">Scannet kode</span>
+                <span class="terminal-value">
+                  {{ lastResponse ? lastResponse.barcode : '—' }}
+                </span>
+              </div>
+              <div class="terminal-row">
+                <span class="terminal-label">Minimum/Total</span>
+                <span class="terminal-value">
+                  <template v-if="lastResponse?.status === 'known'">
+                    <span v-if="lastResponse.item.threshold !== null">
+                      Minimum {{ lastResponse.item.threshold }} · Total {{ totalStock ?? 0 }}
+                    </span>
+                    <span v-else>
+                      Minimum — · Total {{ totalStock ?? 0 }}
+                    </span>
+                  </template>
+                  <template v-else>
+                    —
+                  </template>
+                </span>
+              </div>
+              <div class="terminal-row terminal-row--message">
+                <span class="terminal-label">Besked</span>
+                <span class="terminal-value terminal-value--status">
+                  {{ statusText }}
+                </span>
+              </div>
+              <div class="terminal-row terminal-row--locations">
+                <span class="terminal-label">Lager</span>
+                <div class="terminal-locations">
+                  <template v-if="limitedLocations.length > 0">
+                    <div v-for="loc in limitedLocations" :key="loc.locationId" class="terminal-loc">
+                      <span class="terminal-loc__name">{{ loc.locationName }}</span>
+                      <div class="terminal-loc__controls" v-if="lastResponse?.status === 'known'">
+                        <button
+                          type="button"
+                          class="loc-btn--tiny"
+                          :aria-label="`Træk 1 fra ${loc.locationName}`"
+                          @click="adjustLocation(loc, -1)"
+                        >
+                          -
+                        </button>
+                        <span class="terminal-loc__amount">{{ loc.amount }}</span>
+                        <button
+                          type="button"
+                          class="loc-btn--tiny"
+                          :aria-label="`Læg 1 til ${loc.locationName}`"
+                          @click="adjustLocation(loc, +1)"
+                        >
+                          +
+                        </button>
+                      </div>
+                      <span v-else class="terminal-loc__amount">{{ loc.amount }}</span>
                     </div>
-                  </li>
-                  </ul>
+                  </template>
+                  <p v-else class="muted">Ingen lagerlinjer</p>
                 </div>
-                <p v-else class="muted">
-                  Intet lager registreret endnu for denne vare.
-                </p>
               </div>
-            </template>
-
-            <p v-else class="muted">
-              Scan en stregkode for at se resultater.
-            </p>
+            </div>
           </div>
         </div>
       </div>
@@ -517,53 +585,30 @@ async function onLoginSubmit() {
 
     <div v-if="isAuthenticated && showUnknownInModal" class="modal-backdrop">
       <div class="modal">
-        <button type="button" class="modal-close" @click="cancelUnknownIn">
-          Luk
-        </button>
-        <h2>Ukendt identifikator</h2>
-        <p>
-          Denne stregkode er ikke knyttet til nogen vare i IND-tilstand. Opret en ny vare eller link til en eksisterende, så tilføjer vi den automatisk her.
+        <div class="modal__header">
+          <h2>Ukendt varekode</h2>
+          <button type="button" class="modal-close" @click="cancelUnknownIn">
+            Luk (Esc)
+          </button>
+        </div>
+        <p class="muted modal__hint">
+          Tilføj ny vare herunder
         </p>
-        <p v-if="unknownInError" class="status status--error">
+        <p v-if="unknownInError" class="status status--error modal__error">
           {{ unknownInError }}
         </p>
-        <div class="modal-location">
-          <p class="muted">Vælg lokation for denne IN-handling:</p>
-          <div class="location-buttons">
-            <button
-              type="button"
-              :class="['loc-btn', { 'loc-btn--active': selectedLocationId === 1 }]"
-              @click="setLocation(1, 'Viktualierum')"
-            >
-              Viktualierum
-            </button>
-            <button
-              type="button"
-              :class="['loc-btn', { 'loc-btn--active': selectedLocationId === 2 }]"
-              @click="setLocation(2, 'Kontor')"
-            >
-              Kontor
-            </button>
-            <button
-              type="button"
-              :class="['loc-btn', { 'loc-btn--active': selectedLocationId === 3 }]"
-              @click="setLocation(3, 'Kummefryser')"
-            >
-              Kummefryser
-            </button>
-          </div>
-        </div>
 
-        <div class="unknown-panel">
-          <div class="unknown-section">
-            <h3>Opret ny vare</h3>
+        <div class="modal__row modal__row--name">
+          <span class="modal__label">Varenavn</span>
+          <div class="modal__content modal__content--stack">
             <input
               v-model="newItemName"
               type="text"
-              class="scan-form__input"
-              placeholder="Varenavn"
+              class="modal-input"
+              ref="newItemInputRef"
+              placeholder="Søg eller opret navn"
             />
-            <ul v-if="matchingItems.length > 0" class="suggestions">
+            <ul v-if="newItemName && matchingItems.length > 0" class="suggestions">
               <li
                 v-for="(item, index) in matchingItems"
                 :key="item.id"
@@ -573,20 +618,62 @@ async function onLoginSubmit() {
                 {{ item.name }}
               </li>
             </ul>
+          </div>
+        </div>
+
+        <div class="modal__row modal__row--threshold">
+          <span class="modal__label">Tærskel</span>
+          <div class="modal__content">
             <input
+              id="threshold-input"
               v-model.number="newItemThreshold"
               type="number"
-              class="scan-form__input"
-              placeholder="Tærskel (valgfrit)"
+              class="modal-input"
+              placeholder="Valgfrit"
             />
-            <button
-              type="button"
-              class="scan-form__submit"
-              @click="resolveUnknownByCreate"
-            >
-              Opret vare og tilføj her
-            </button>
           </div>
+        </div>
+
+        <div class="modal__row modal__row--location">
+          <span class="modal__label">Lokation</span>
+          <div class="modal__content">
+            <div class="loc-pills">
+              <button
+                type="button"
+                class="loc-pill"
+                :class="{ 'loc-pill--active': selectedLocationId === 1 }"
+                @click="setLocation(1, 'Viktualierum')"
+              >
+                Viktualierum
+              </button>
+              <button
+                type="button"
+                class="loc-pill"
+                :class="{ 'loc-pill--active': selectedLocationId === 2 }"
+                @click="setLocation(2, 'Kontor')"
+              >
+                Kontor
+              </button>
+              <button
+                type="button"
+                class="loc-pill"
+                :class="{ 'loc-pill--active': selectedLocationId === 3 }"
+                @click="setLocation(3, 'Kummefryser')"
+              >
+                Kummefryser
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal__actions">
+          <button
+            type="button"
+            class="scan-form__submit"
+            @click="resolveUnknownByCreate"
+          >
+            Opret vare
+          </button>
         </div>
       </div>
     </div>
@@ -594,8 +681,25 @@ async function onLoginSubmit() {
 </template>
 
 <style lang="scss">
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 .app {
-  min-height: 100vh;
+  height: 100vh;
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   background: #0f172a;
@@ -603,43 +707,69 @@ async function onLoginSubmit() {
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 
   &__header {
-    padding: 1.5rem 1.5rem 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid #1f2937;
+    background: #0b1223;
   }
 
-  &__subtitle {
-    margin-top: 0.25rem;
-    color: #9ca3af;
-    font-size: 0.9rem;
+  &__title {
+    margin: 0;
+    font-size: 1.1rem;
   }
 
   &__main {
     flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
-    align-items: center;
+    align-items: stretch;
     justify-content: flex-start;
-    padding: 1.5rem;
+    padding: 0.75rem;
+    gap: 0.75rem;
+    width: 100%;
+    overflow: hidden;
   }
+}
+
+.logo-placeholder {
+  width: 36px;
+  height: 36px;
+  border-radius: 0.5rem;
+  border: 1px dashed #1f2937;
+  background: #020617;
+  color: #64748b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  text-transform: uppercase;
 }
 
 .scan-form {
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.75rem;
 
-  &__mode {
+  &__header {
     display: flex;
-    gap: 0.5rem;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
   }
 
   &__input {
-    padding: 0.85rem 1rem;
+    padding: 0.85rem 0.9rem;
     border-radius: 0.5rem;
     border: 1px solid #1f2937;
     background: #020617;
     color: inherit;
-    font-size: 1.1rem;
+    font-size: 1.25rem;
+    font-family: ui-monospace, SFMono-Regular, SFMono, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+      monospace;
 
     &:focus {
       outline: 2px solid #3b82f6;
@@ -666,53 +796,34 @@ async function onLoginSubmit() {
   }
 }
 
-.mode-btn {
-  flex: 1;
-  padding: 0.5rem 0.75rem;
-  border-radius: 999px;
-  border: 1px solid #1f2937;
-  background: #020617;
-  color: #9ca3af;
-  font-size: 0.9rem;
-  cursor: pointer;
-
-  &--active {
-    background: #22c55e;
-    border-color: #16a34a;
-    color: #022c22;
-    font-weight: 600;
-  }
-}
-
 .scan {
   width: 100%;
-  max-width: 720px;
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 0.75rem;
 }
 
 .scan__controls {
   width: 100%;
-  padding: 1rem 1.25rem;
+  padding: 0.75rem;
   border: 1px solid #1f2937;
   border-radius: 0.75rem;
   background: #0b1223;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  position: sticky;
+  top: 0.75rem;
+  z-index: 5;
 }
 
 .scan__output {
   width: 100%;
-}
-
-.scan-result {
-  min-height: 220px;
-  width: 100%;
+  flex: 1;
+  min-height: 0;
   display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
 }
 
 .status {
@@ -750,29 +861,71 @@ async function onLoginSubmit() {
 }
 
 .login-card {
-  max-width: 420px;
+  display: none;
+}
+
+.login-panel {
   width: 100%;
-  margin-top: 2rem;
-  text-align: center;
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+  padding: 0.75rem;
+  background: #0b1223;
+  border: 1px solid #1f2937;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.35rem;
 }
 
 .login-form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  margin-top: 0.5rem;
+  display: grid;
+  grid-template-columns: minmax(80px, auto) minmax(0, 1fr) minmax(82px, auto);
+  gap: 0.4rem;
+  align-items: center;
+}
 
-  .scan-form__input {
-    text-align: center;
+.login-label {
+  color: #cbd5e1;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.login-input {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid #1f2937;
+  background: #020617;
+  color: #e5e7eb;
+  font-size: 1.05rem;
+  font-family: ui-monospace, SFMono-Regular, SFMono, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
+
+  &:focus {
+    outline: 2px solid #3b82f6;
+    outline-offset: 0;
+  }
+}
+
+.login-submit {
+  padding: 0.55rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid #1f2937;
+  background: #3b82f6;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+
+  &:hover {
+    background: #2563eb;
   }
 
-  .scan-form__submit {
-    width: 100%;
+  &:active {
+    transform: translateY(1px);
   }
+}
+
+.login-error {
+  margin: 0;
+  font-size: 0.9rem;
 }
 
 .muted {
@@ -828,45 +981,128 @@ async function onLoginSubmit() {
   &:active {
     transform: translateY(1px);
   }
+
+  &:focus-visible {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
+    border-color: #3b82f6;
+  }
 }
 
 /* these were mistakenly nested inside .locations before */
 
-.change {
-  margin: 0.5rem 0 0.75rem;
-
-  p {
-    margin: 0;
-    font-size: 0.9rem;
-  }
-}
-
-.current-status {
-  margin-bottom: 0.75rem;
+.status-line {
+  margin: 0;
+  padding: 0.35rem 0.5rem;
   font-size: 0.9rem;
-  color: #9ca3af;
+  color: #cbd5e1;
+  background: #0f172a;
+  border: 1px solid #1f2937;
+  border-radius: 0.5rem;
 }
 
-.location-buttons {
-  margin-top: 0.5rem;
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.loc-btn {
-  padding: 0.35rem 0.75rem;
+.lock-indicator {
+  padding: 0.25rem 0.6rem;
   border-radius: 999px;
-  border: 1px solid #4b5563;
-  background: #020617;
-  color: #e5e7eb;
-  font-size: 0.85rem;
-  cursor: pointer;
+  border: 1px solid #1f2937;
+  background: #0f172a;
+  color: #22c55e;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 
-  &--active {
-    background: #4b5563;
-    border-color: #e5e7eb;
+  &--locked {
+    color: #fbbf24;
+    border-color: #4b5563;
   }
+}
+
+.terminal-panel {
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  max-height: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-family: ui-monospace, SFMono-Regular, SFMono, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
+  overflow: hidden;
+}
+
+.terminal-row {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.terminal-row--full {
+  width: 100%;
+}
+
+.terminal-row--locations {
+  flex: 1;
+}
+
+.terminal-row--message {
+  align-self: start;
+}
+
+.terminal-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem 0.75rem;
+  align-items: flex-start;
+}
+
+.terminal-label {
+  color: #94a3b8;
+  font-size: 0.9rem;
+}
+
+.terminal-value {
+  color: #e5e7eb;
+  font-size: 1rem;
+  word-break: break-word;
+
+  &--status {
+    color: #22c55e;
+  }
+}
+
+.terminal-locations {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.terminal-loc {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #1f2937;
+  border-radius: 0.5rem;
+  background: #0b1223;
+}
+
+.terminal-loc__name {
+  color: #cbd5e1;
+  font-size: 0.9rem;
+}
+
+.terminal-loc__controls {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+
+.terminal-loc__amount {
+  min-width: 1.5rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 .unknown-panel {
@@ -883,6 +1119,31 @@ async function onLoginSubmit() {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+}
+
+.suggestions {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  border: 1px solid #1f2937;
+  border-radius: 0.5rem;
+  background: #0b1223;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.suggestion {
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+
+  &--active {
+    background: #111827;
+    color: #e5e7eb;
+  }
+
+  & + & {
+    border-top: 1px solid #1f2937;
+  }
 }
 
 .suggestions {
@@ -922,35 +1183,41 @@ async function onLoginSubmit() {
 
 .modal {
   width: 100%;
-  max-width: 520px;
-  padding: 1.25rem 1.5rem;
+  max-width: 540px;
+  max-height: 360px;
+  padding: 1rem 1.25rem;
   border-radius: 0.75rem;
   background: #020617;
   border: 1px solid #1f2937;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
   position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  overflow: hidden;
 
   h2 {
-    margin: 0 0 0.35rem;
-  }
-
-  h3 {
     margin: 0;
-  }
-
-  p {
-    margin: 0 0 0.5rem;
   }
 }
 
-.modal-location {
-  margin: 0.25rem 0 0.75rem;
+.modal__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.modal__hint {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.modal__error {
+  margin: 0;
 }
 
 .modal-close {
-  position: absolute;
-  top: 0.75rem;
-  right: 0.75rem;
   padding: 0.35rem 0.75rem;
   border-radius: 999px;
   border: 1px solid #4b5563;
@@ -960,6 +1227,79 @@ async function onLoginSubmit() {
 
   &:hover {
     background: #111827;
+  }
+}
+
+.modal__row {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 0.5rem;
+  align-items: start;
+}
+
+.modal__label {
+  color: #94a3b8;
+  font-size: 0.9rem;
+  padding-top: 0.35rem;
+}
+
+.modal__content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.modal__content--stack {
+  gap: 0.4rem;
+}
+
+.modal-input {
+  width: 100%;
+  padding: 0.65rem 0.8rem;
+  border-radius: 0.5rem;
+  border: 1px solid #1f2937;
+  background: #020617;
+  color: #e5e7eb;
+  font-size: 1rem;
+  font-family: ui-monospace, SFMono-Regular, SFMono, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
+
+  &:focus {
+    outline: 2px solid #3b82f6;
+    outline-offset: 0;
+  }
+}
+
+.modal__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.loc-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.loc-pill {
+  padding: 0.4rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid #4b5563;
+  background: #0b1223;
+  color: #e5e7eb;
+  font-size: 0.9rem;
+  cursor: pointer;
+
+  &--active {
+    background: #3b82f6;
+    border-color: #93c5fd;
+    color: #0b1223;
+    font-weight: 600;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
   }
 }
 
