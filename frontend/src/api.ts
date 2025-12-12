@@ -33,7 +33,10 @@ export interface KnownIdentifierResponse extends BaseScanResponse {
   }
   locations: KnownIdentifierLocation[]
   change?: ChangeInfo | null
-  warning?: 'no_stock_available' | 'no_location_selected_for_in'
+  warning?:
+    | 'no_stock_available'
+    | 'no_location_selected_for_in'
+    | 'no_stock_in_selected_location'
 }
 
 export type ScanResponse = UnknownIdentifierResponse | KnownIdentifierResponse
@@ -46,6 +49,35 @@ export interface ItemSummary {
 
 const API_BASE =
   import.meta.env.VITE_API_BASE || 'http://localhost:3000'
+
+export async function login(password: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/login`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ password }),
+  })
+
+  if (!res.ok) {
+    throw new Error(`Login failed: ${res.status}`)
+  }
+}
+
+export async function authCheck(): Promise<boolean> {
+  const res = await fetch(`${API_BASE}/api/auth-check`, {
+    credentials: 'include',
+  })
+
+  if (res.status === 401) return false
+  if (!res.ok) {
+    throw new Error(`Auth check failed: ${res.status}`)
+  }
+
+  const data = (await res.json()) as { authenticated?: boolean }
+  return data.authenticated === true
+}
 
 export async function fetchAllItems(): Promise<ItemSummary[]> {
   const res = await fetch(`${API_BASE}/api/items`, {

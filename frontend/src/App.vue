@@ -6,10 +6,17 @@ import {
   fetchAllItems,
   createItem,
   linkIdentifier,
+  login,
+  authCheck,
   type ScanMode,
   type ScanResponse,
   type ItemSummary,
 } from './api'
+
+const isAuthenticated = ref(false)
+const authLoading = ref(true)
+const loginPassword = ref('')
+const loginError = ref<string | null>(null)
 
 const scanValue = ref('')
 const mode = ref<ScanMode>('OUT')
@@ -98,7 +105,10 @@ function handleCommand(raw: string): boolean {
   const parts = raw.split(':')
   if (parts.length < 3) return false
 
-  const [, type, value] = parts
+  const type = parts[1]
+  const value = parts[2]
+
+  if (!type || !value) return false
 
   if (type === 'MODE') {
     if (value === 'IN' || value === 'OUT' || value === 'STATUS') {
@@ -305,13 +315,34 @@ function handleKeydown(e: KeyboardEvent) {
 }
 
 onMounted(() => {
-  focusInput()
   window.addEventListener('keydown', handleKeydown)
+})
+
+onMounted(async () => {
+  try {
+    isAuthenticated.value = await authCheck()
+    if (isAuthenticated.value) {
+      focusInput()
+    }
+  } finally {
+    authLoading.value = false
+  }
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeydown)
 })
+
+async function onLoginSubmit() {
+  try {
+    loginError.value = null
+    await login(loginPassword.value)
+    isAuthenticated.value = true
+    focusInput()
+  } catch (err) {
+    loginError.value = 'Forkert adgangskode'
+  }
+}
 </script>
 
 
@@ -323,7 +354,26 @@ onBeforeUnmount(() => {
     </header>
 
     <main class="app__main">
-      <div class="scan">
+      <div v-if="authLoading" class="card login-card">
+        Logger ind…
+      </div>
+
+      <div v-else-if="!isAuthenticated" class="card login-card">
+        <h2>Login</h2>
+        <p class="muted">Indtast adgangskoden for at fortsætte.</p>
+        <form @submit.prevent="onLoginSubmit" class="login-form">
+          <input
+            v-model="loginPassword"
+            type="password"
+            class="scan-form__input"
+            placeholder="Adgangskode"
+          />
+          <button type="submit" class="scan-form__submit">Log ind</button>
+          <p v-if="loginError" class="status status--error">{{ loginError }}</p>
+        </form>
+      </div>
+
+      <div v-else class="scan">
         <div class="scan__controls">
           <p class="current-status">
             Tilstand: {{ mode }}
@@ -455,7 +505,7 @@ onBeforeUnmount(() => {
       </div>
     </main>
 
-    <div v-if="showUnknownInModal" class="modal-backdrop">
+    <div v-if="isAuthenticated && showUnknownInModal" class="modal-backdrop">
       <div class="modal">
         <button type="button" class="modal-close" @click="cancelUnknownIn">
           Luk
@@ -686,6 +736,32 @@ onBeforeUnmount(() => {
 
   p {
     margin: 0.25rem 0;
+  }
+}
+
+.login-card {
+  max-width: 420px;
+  width: 100%;
+  margin-top: 2rem;
+  text-align: center;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+
+  .scan-form__input {
+    text-align: center;
+  }
+
+  .scan-form__submit {
+    width: 100%;
   }
 }
 

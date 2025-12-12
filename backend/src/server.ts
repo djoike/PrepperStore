@@ -1,16 +1,27 @@
 import 'dotenv/config'
-import { runMigrations } from './migrations'
-import Fastify from 'fastify'
+import Fastify, { FastifyRequest } from 'fastify'
 import cors from '@fastify/cors'
 import cookie from '@fastify/cookie'
 import helmet from '@fastify/helmet'
+import { runMigrations } from './migrations'
 import { queryOne } from './db'
 import scanRoutes from './routes/scan'
 import stockRoutes from './routes/stock'
 import itemsRoutes from './routes/items'
 
-const isProd = process.env.NODE_ENV === 'production'
 const PORT = Number(process.env.PORT) || 3000
+const PREPPERSTORE_PASSWORD = process.env.PREPPERSTORE_PASSWORD
+const SESSION_COOKIE_NAME = 'ps_session'
+const SESSION_VALUE = 'ok'
+const SESSION_MAX_AGE_SECONDS = 60 * 24 * 60 * 60 // 60 days
+
+function isAuthenticated(request: FastifyRequest) {
+  const raw = request.cookies?.[SESSION_COOKIE_NAME]
+  if (!raw) return false
+
+  const unsigned = request.unsignCookie(raw)
+  return unsigned.valid && unsigned.value === SESSION_VALUE
+}
 
 async function buildServer() {
   const fastify = Fastify({
@@ -30,8 +41,26 @@ async function buildServer() {
 
   // Cookies (for sessions later)
   await fastify.register(cookie, {
-    secret: process.env.COOKIE_SECRET || 'dev-secret-change-me',
+    secret: process.env.COOKIE_SECRET || 'dev-secret',
     hook: 'onRequest',
+  })
+
+  const authExemptRoutes = new Set([
+    '/api/login',
+    '/api/auth-check',
+    '/api/health',
+    '/api/db-health',
+  ])
+
+  fastify.addHook('preHandler', async (request, reply) => {
+    const path = request.routeOptions.url
+
+    if (!path || !path.startsWith('/api/')) return
+    if (authExemptRoutes.has(path)) return
+    if (isAuthenticated(request)) return
+
+    reply.code(401)
+    return { error: 'unauthorized' }
   })
 
   // Health check
@@ -46,6 +75,35 @@ async function buildServer() {
       status: 'ok',
       now: row?.now ?? null,
     }
+  })
+
+  fastify.post<{ Body: { password: string } }>('/api/login', async (request, reply) => {
+    const { password } = request.body ?? {}
+
+    if (!PREPPERSTORE_PASSWORD || password !== PREPPERSTORE_PASSWORD) {
+      reply.code(401)
+      return { error: 'invalid_credentials' }
+    }
+
+    reply.setCookie(SESSION_COOKIE_NAME, SESSION_VALUE, {
+      signed: true,
+      httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: SESSION_MAX_AGE_SECONDS,
+    })
+
+    return { success: true }
+  })
+
+  fastify.get('/api/auth-check', async (request, reply) => {
+    if (!isAuthenticated(request)) {
+      reply.code(401)
+      return { authenticated: false }
+    }
+
+    return { authenticated: true }
   })
 
   fastify.get('/', async () => {
