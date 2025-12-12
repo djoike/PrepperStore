@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   sendScan,
   adjustStock,
@@ -17,6 +17,7 @@ const isAuthenticated = ref(false)
 const authLoading = ref(true)
 const loginPassword = ref('')
 const loginError = ref<string | null>(null)
+const loginInputRef = ref<HTMLInputElement | null>(null)
 
 const scanValue = ref('')
 const mode = ref<ScanMode>('OUT')
@@ -82,9 +83,12 @@ function setLocation(id: number, name: string) {
 }
 
 function focusInput() {
-  if (scanInput.value) {
-    scanInput.value.focus()
-  }
+  nextTick(() => {
+    if (!isAuthenticated.value) return
+    if (showUnknownInModal.value) return
+    if (scanLocked.value) return
+    scanInput.value?.focus()
+  })
 }
 
 function cancelUnknownIn() {
@@ -95,6 +99,7 @@ function cancelUnknownIn() {
   newItemName.value = ''
   newItemThreshold.value = null
   highlightedIndex.value = -1
+   scanLocked.value = false
   focusInput()
 }
 
@@ -326,6 +331,9 @@ onMounted(async () => {
     }
   } finally {
     authLoading.value = false
+    if (!isAuthenticated.value) {
+      nextTick(() => loginInputRef.value?.focus())
+    }
   }
 })
 
@@ -341,6 +349,7 @@ async function onLoginSubmit() {
     focusInput()
   } catch (err) {
     loginError.value = 'Forkert adgangskode'
+    nextTick(() => loginInputRef.value?.focus())
   }
 }
 </script>
@@ -364,6 +373,7 @@ async function onLoginSubmit() {
         <form @submit.prevent="onLoginSubmit" class="login-form">
           <input
             v-model="loginPassword"
+            ref="loginInputRef"
             type="password"
             class="scan-form__input"
             placeholder="Adgangskode"
