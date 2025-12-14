@@ -880,6 +880,7 @@ body,
   padding: 0.75rem;
   background: #0b1223;
   border: 1px solid #1f2937;
+  margin-top: 0.75rem;
   display: flex;
   flex-direction: column;
   gap: 0.35rem;

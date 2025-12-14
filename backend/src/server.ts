@@ -27,16 +27,23 @@ async function buildServer() {
   const fastify = Fastify({
     logger: true,
   })
+  const allowedOrigins = (process.env.FRONTEND_ORIGINS ?? 'http://localhost:5173')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
 
   // Security headers
   await fastify.register(helmet, {
     contentSecurityPolicy: false, // we'll tune later if needed
   })
 
-  // CORS – dev: allow Vite, prod: we'll set env
+  // CORS – allow configured frontend origins, including LAN, and allow tools without Origin
   await fastify.register(cors, {
-    origin: ['http://localhost:5173'],
     credentials: true,
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true)
+      cb(null, allowedOrigins.includes(origin))
+    },
   })
 
   // Cookies (for sessions later)
@@ -88,7 +95,7 @@ async function buildServer() {
     reply.setCookie(SESSION_COOKIE_NAME, SESSION_VALUE, {
       signed: true,
       httpOnly: true,
-      secure: true,
+      secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       path: '/',
       maxAge: SESSION_MAX_AGE_SECONDS,
