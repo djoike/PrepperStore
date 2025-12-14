@@ -27,6 +27,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Debug - list lockfiles
+        run: |
+          ls -la
+          ls -la frontend || true
+          ls -la frontend/package-lock.json || true
+          git status --porcelain
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
