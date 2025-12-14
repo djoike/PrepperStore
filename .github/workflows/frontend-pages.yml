@@ -46,7 +46,7 @@ jobs:
 
       - name: Build
         env:
-          VITE_API_BASE: "https://prepperstore-backend.onrender.com"
+          VITE_API_BASE: "https://ps-api.monsted.org"
         run: npm run build
 
       # Vite outputs to frontend/dist
